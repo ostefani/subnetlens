@@ -32,7 +32,7 @@ builds:
 
 archives:
     - id: subnetlens
-      builds:
+      ids:
           - subnetlens
       name_template: >-
           {{ .ProjectName }}_
