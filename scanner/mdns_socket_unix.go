@@ -6,6 +6,8 @@ import (
 	"context"
 	"net"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 func newMDNSSocket() (net.PacketConn, error) {
@@ -13,8 +15,8 @@ func newMDNSSocket() (net.PacketConn, error) {
 		Control: func(network, address string, c syscall.RawConn) error {
 			var setSockErr error
 			err := c.Control(func(fd uintptr) {
-				setSockErr = syscall.SetsockoptInt(
-					int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEPORT, 1,
+				setSockErr = unix.SetsockoptInt(
+					int(fd), unix.SOL_SOCKET, unix.SO_REUSEPORT, 1,
 				)
 			})
 			if err != nil {
