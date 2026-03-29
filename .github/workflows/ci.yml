@@ -1,0 +1,39 @@
+# .github/workflows/ci.yml
+# Runs on every push to main and on pull requests.
+# Builds the binary to verify compilation — does not publish a release.
+
+name: CI
+
+on:
+    push:
+        branches:
+            - main
+    pull_request:
+        branches:
+            - main
+
+permissions:
+    contents: read
+
+jobs:
+    build:
+        name: Build & Vet
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Set up Go
+              uses: actions/setup-go@v5
+              with:
+                  go-version: stable
+
+            - name: Download dependencies
+              run: go mod download
+
+            - name: Vet
+              run: go vet ./...
+
+            - name: Build
+              run: go build -v ./...
