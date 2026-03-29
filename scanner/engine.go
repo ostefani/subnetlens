@@ -42,6 +42,7 @@ func (e *Engine) Run(ctx context.Context) *models.ScanResult {
 	if err != nil {
 		debugLog("engine", "expandTargets error: %v", err)
 	} else {
+		debugLog("engine", "expandTargets")
 		preheatSubnet(runCtx, targets.seq, targets.total, icmpScanner)
 	}
 

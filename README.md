@@ -1,6 +1,6 @@
 # ✧ Subnetlens ✧
 
-A fast, concurrent local network scanner with a TUI and plain-text CLI — built in Go.
+A fast, concurrent network scanner with a TUI and plain-text CLI, built in Go.
 
 Supports multiple discovery methods:
 
@@ -9,22 +9,23 @@ Supports multiple discovery methods:
 - ARP scan (Linux/macOS; Windows requires Npcap)
 - mDNS (passive) — listen for local service announcements
 
-Designed for local subnet enumeration and any reachable IP range via TCP and ICMP.
-
 ## Features
 
 - **Host discovery** (TCP, ICMP, ARP)
 - **Port scanning** (TCP connect)
-- **Device hinting** — TLS cert, HTTP headers, MAC vendor (OUI)
-- **MAC randomization detection**
-- **OS hinting** — heuristic-based fingerprinting
-- **Streaming TUI** — live updates during scan
-- **Plain mode** — script-friendly output
+- **OS & Device Fingerprinting:** Heuristically detects operating systems and device types.
+- **Vendor & MAC Resolution:** Uses OUI databases to identify device vendors and detects randomized MAC addresses.
+- **Streaming TUI:** A visual interface built with [Charm's Bubbletea](https://github.com/charmbracelet/bubbletea).
+- **Plain Text Mode:** Script-friendly output.
 - **Single binary**
+
+## Preview
+
+![SubnetLens TUI](docs/tui_interface.png)
 
 ## OUI database (optional)
 
-For MAC vendor resolution, download an OUI CSV from [https://regauth.standards.ieee.org](https://regauth.standards.ieee.org)
+To build from source fully fledged app you need OUI tables for MAC vendor resolution. You can download it in scv format from [https://regauth.standards.ieee.org](https://regauth.standards.ieee.org). If omitted, vendor lookup falls back to a built-in stub table.
 
 Place it at:
 
@@ -32,49 +33,70 @@ Place it at:
 scanner/oui.csv
 ```
 
-**If omitted, vendor lookup falls back to a built-in truncated OUI table.**
+**Required only when building from source: the prebuilt binary ships with a built-in full OUI table.**
 
 ## Quick Start
+
+If you want to download repo and build your binary, follow the instruction below. To run a downloaded precompiled binary, read further.
+
+To clone the repository and build from source, follow the instructions below.
+To use a precompiled binary, see [Install precompiled build](#install-precompiled-build).
+
+**Note:** On macOS and Linux, run with `sudo` to enable ARP and ICMP. On Windows, run the terminal as Administrator. TCP scan requires no elevated privileges.
+
+### Development
 
 ```bash
 git clone https://github.com/ostefani/subnetlens
 cd subnetlens
 
-# Update dependencies
-go get -u all
-go get github.com/some/module@latest
-
-# Install dependencies
+# ---Install dependencies---
 go mod tidy
 
-# ---Install---
-go install ./... ## binary in $(go env GOPATH)/bin
-# or
-mv subnetlens /usr/local/bin/
-
-# Build
+# ---Build---
 go build .
 # or
 go build -o subnetlens
 
-# Add to PATH
-export PATH="$PATH:$(go env GOPATH)/bin"
-# Make persist
-echo 'export PATH="$PATH:$(go env GOPATH)/bin"' >> ~/.zshrc
-source ~/.zshrc
-
-# 5. Run
+# ---Run---
 subnetlens scan <target>
+```
 
-# Run in debug mode
-NETMAP_DEBUG=1 sudo ./subnetlens scan <target> --plain 2>debug.log
+### Debug mode
+
+```bash
+# Into console
+sudo SLENS_DEBUG=1 ./subnetlens scan <target> --plain
+# Into file
+sudo SLENS_DEBUG=1 ./subnetlens scan <target> --plain 2>debug.log
+# Print from file
+cat debug.log
+```
+
+### Update dependencies
+
+```bash
+go get -u all
+```
+
+### Install with Go
+
+```bash
+cd subnetlens
+go install .
+```
+
+### Install precompiled build
+
+```bash
+sudo mv subnetlens /usr/local/bin/
 ```
 
 ## Usage
 
 ### Scan Your Own Machine
 
-Check interfaces and its assigned IP. Scan only the subnet that matches your WiFi interface (`en0`) to stay on your home network.
+Check interfaces and their assigned IPs. Scan only the subnet that matches your WiFi interface (`en0`) to stay on your home network.
 
 ```bash
 ip addr                      # Linux
@@ -86,11 +108,11 @@ subnetlens scan [subnet] [flags]
 ```
 
 **Flags:**
-`-p`, --ports string Comma-separated ports to scan (default: common 23 ports)
-`-t`, --timeout int Per-connection timeout in ms (default: 500)
-`-c`, --concurrency int Parallel goroutines (default: 100)
-`-b`, --banners Grab service banners
---plain Plain text output (no TUI)
+`-p`, `--ports` string Comma-separated ports to scan (default: common 23 ports)
+`-t`, `--timeout` int Per-connection timeout in ms (default: 500)
+`-c`, `--concurrency` int Parallel goroutines (default: 100)
+`-b`, `--banners` Grab service banners
+`--plain` Plain text output (no TUI)
 
 ## Platform Support
 
@@ -101,7 +123,7 @@ subnetlens scan [subnet] [flags]
 | ARP      | ✔        | ✔        | ✔ (Npcap required) |
 | mDNS     | ✔        | ✔        | not tested         |
 
-Windows requires Npcap for ARP scanning.
+**Windows prerequisite:** Active ARP scanning requires [Npcap](https://npcap.com) — a kernel-level packet capture driver. If you have Wireshark installed, Npcap should be already present.
 
 **Examples:**
 
@@ -127,7 +149,7 @@ subnetlens /
 │   ├── helpers.go
 │   ├── icmp.go
 │   ├── osdetect.go
-│   └── oui.csv        # is not included in the repo, must be downloaded from https://regauth.standards.ieee.org if you want to build locally
+│   └── oui.csv        # is not included in the repo, download from https://regauth.standards.ieee.org if building locally
 ├── models/
 │   └── models.go
 └── ui/
@@ -140,18 +162,19 @@ subnetlens /
 - [x] ARP-based host discovery (requires raw sockets / root)
 - [x] MAC address vendor lookup
 - [x] mDNS listening
+- [ ] Add tests
+- [ ] Scan profiles: `--all-alive | --all`
 - [ ] UDP port scanning
 - [ ] JSON / CSV export (`--output result.json`)
 - [ ] GUI with interactive network node graph
-- [ ] Scan profiles: `--profile quick|full|stealth`
 - [ ] `subnetlens watch` — re-scan on interval, alert on changes
 
 ## Contributing
 
-To contribute please consult CONTRIBUTING.md about PR requirements.
+To contribute, please consult CONTRIBUTING.md about PR requirements.
 
 ## License
 
 MIT © 2026 Olha Stefanishyna
 
-**Disclaimer:** This tool is intended for authorized security testing and network diagnostics only. Do not scan networks or systems without explicit permission.
+**Disclaimer:** This tool is intended for authorized network testing and diagnostics only. Do not scan networks or systems without explicit permission. Use responsibly.

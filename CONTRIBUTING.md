@@ -1,5 +1,12 @@
 # Contribution Guidelines
 
+## Submitting a PR
+
+1. Fork the repository and create a branch from `main`
+2. Follow the branch naming and commit conventions above
+3. Open a pull request with a clear description of the change
+4. PRs with focused, single-purpose changes are reviewed faster
+
 ## Branch Names
 
 Use the following prefixes:
@@ -22,7 +29,7 @@ Use conventional commit labels:
 - `fix` — bug fix
 - `docs` — documentation
 
-Write the subject line as an imperative verb:
+Write the subject line as an imperative:
 
 - `feat: add login form`
 - `fix: handle null user ID`

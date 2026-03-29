@@ -10,7 +10,7 @@ import (
 	"unicode"
 )
 
-var DebugMode = os.Getenv("NETMAP_DEBUG") == "1"
+var DebugMode = os.Getenv("SLENS_DEBUG") == "1"
 
 func debugLog(subsystem, format string, args ...any) {
 	if !DebugMode {
