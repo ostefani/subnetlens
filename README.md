@@ -31,17 +31,11 @@ Supports multiple discovery methods:
 
 ![SubnetLens TUI](docs/tui_interface.png)
 
-## OUI database (optional)
+## OUI database
 
-To build from source fully fledged app you need OUI tables for MAC vendor resolution. You can download it in scv format from [https://regauth.standards.ieee.org](https://regauth.standards.ieee.org). If omitted, vendor lookup falls back to a built-in stub table.
+The file `scanner/oui.csv` maps MAC address prefixes to device vendors. It is obtained from the [IEEE Registration Authority](https://regauth.standards.ieee.org) and is included in this repository so that both local builds and the release binary ship with full vendor resolution.
 
-Place it at:
-
-```bash
-scanner/oui.csv
-```
-
-**Required only when building from source: the prebuilt binary ships with a built-in full OUI table.**
+If you need to refresh it, download the latest CSV from the link above and replace `scanner/oui.csv`.
 
 ## Quick Start
 
