@@ -115,6 +115,7 @@ subnetlens scan [subnet] [flags]
 `-c`, `--concurrency` int Parallel goroutines (default: 100)
 `-b`, `--banners` Grab service banners
 `--plain` Plain text output (no TUI)
+`--all-alive` Show all discovered hosts, including those that respond with TCP connection errors.
 
 ## Platform Support
 
