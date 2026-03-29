@@ -1,5 +1,13 @@
 # ✧ Subnetlens ✧
 
+![Go Version](https://img.shields.io/badge/go-1.26-blue)
+![CLI](https://img.shields.io/badge/type-CLI-informational)
+![Interface](https://img.shields.io/badge/type-TUI-informational)
+![License](https://img.shields.io/badge/license-MIT-green)
+
+![Bubble Tea](https://img.shields.io/badge/UI-Bubble%20Tea-ff69b4)
+![Cobra](https://img.shields.io/badge/CLI-Cobra-8A2BE2)
+
 A fast, concurrent network scanner with a TUI and plain-text CLI, built in Go.
 
 Supports multiple discovery methods:
