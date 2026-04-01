@@ -2,7 +2,6 @@ package scanner
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
@@ -11,7 +10,7 @@ import (
 
 type Engine struct {
 	Opts       models.ScanOptions
-	OnHost     func(h *models.Host)  // called each time a host completes all stages
+	OnHost     func(h *models.Host)  // called when a host is ready or later updated
 	OnProgress func(done, total int) // called after each ping probe in discovery
 }
 
@@ -46,55 +45,70 @@ func (e *Engine) Run(ctx context.Context) *models.ScanResult {
 		preheatSubnet(runCtx, targets.seq, targets.total, icmpScanner)
 	}
 
-	hostCh := DiscoverHosts(runCtx, e.Opts, e.OnProgress, cache, icmpScanner, arpCache)
+	eventCh := DiscoverHosts(runCtx, e.Opts, e.OnProgress, cache, icmpScanner, arpCache)
 
 	globalSem := make(chan struct{}, e.Opts.Concurrency)
 	var scanWG sync.WaitGroup
-	var hostsMu sync.Mutex
+	hostsByIP := make(map[string]*models.Host)
+	hostReady := make(map[string]chan struct{})
 
-	for host := range hostCh {
-		scanWG.Add(1)
-		go func(scannedHost *models.Host) {
-			defer scanWG.Done()
+	for event := range eventCh {
+		if event.Host == nil {
+			continue
+		}
 
-			// 1. Port scanning acts as a natural time buffer
-			ScanPorts(runCtx, scannedHost, e.Opts, globalSem)
+		ip := event.Host.Snapshot().IP
 
-			if scannedHost.MAC == "" {
-				if mac, ok := arpCache.Lookup(scannedHost.IP); ok {
-					scannedHost.MAC = mac
+		switch event.Type {
+		case HostDiscovered:
+			if _, exists := hostsByIP[ip]; exists {
+				continue
+			}
+
+			hostsByIP[ip] = event.Host
+			result.Hosts = append(result.Hosts, event.Host)
+
+			ready := make(chan struct{})
+			hostReady[ip] = ready
+
+			scanWG.Add(1)
+			go func(scannedHost *models.Host, ready chan struct{}) {
+				defer scanWG.Done()
+				defer close(ready)
+
+				ScanPorts(runCtx, scannedHost, e.Opts, globalSem)
+				EnrichHost(scannedHost, cache, arpCache)
+
+				snapshot := scannedHost.Snapshot()
+				detectedOS, detectedDevice := DetectOS(snapshot.IP, snapshot.OpenPorts, e.Opts.Timeout)
+				scannedHost.SetOS(detectedOS)
+				scannedHost.SetDeviceIfEmpty(detectedDevice)
+
+				if e.OnHost != nil {
+					e.OnHost(scannedHost)
 				}
+			}(event.Host, ready)
+
+		case HostUpdated:
+			if _, exists := hostsByIP[ip]; !exists {
+				continue
 			}
 
-			if scannedHost.MAC != "" && scannedHost.Vendor == "" {
-				if isMACRandomized(scannedHost.MAC) {
-					scannedHost.Vendor = "Randomized MAC — vendor unknown"
-					scannedHost.Device = "Randomized MAC — device undetectable"
-				} else {
-					scannedHost.Vendor = VendorFromMAC(scannedHost.MAC)
+			EnrichHost(event.Host, cache, arpCache)
+
+			ready, ok := hostReady[ip]
+			if !ok {
+				continue
+			}
+
+			select {
+			case <-ready:
+				if e.OnHost != nil {
+					e.OnHost(event.Host)
 				}
+			default:
 			}
-
-			if scannedHost.Hostname == scannedHost.IP || scannedHost.Hostname == "" {
-				if name, ok := cache.get(scannedHost.IP); ok {
-					scannedHost.Hostname = name
-				}
-			}
-
-			detectedOS, detectedDevice := DetectOS(scannedHost.IP, scannedHost.OpenPorts, e.Opts.Timeout)
-			scannedHost.OS = detectedOS
-			if scannedHost.Device == "" {
-				scannedHost.Device = detectedDevice
-			}
-
-			hostsMu.Lock()
-			result.Hosts = append(result.Hosts, scannedHost)
-			hostsMu.Unlock()
-
-			if e.OnHost != nil {
-				e.OnHost(scannedHost)
-			}
-		}(host)
+		}
 	}
 
 	scanWG.Wait()
@@ -111,17 +125,4 @@ func DefaultOptions(subnet string) models.ScanOptions {
 		Concurrency: 100,
 		GrabBanners: true,
 	}
-}
-
-func isMACRandomized(mac string) bool {
-	if len(mac) < 2 {
-		return false
-	}
-	// Parse the first byte from the MAC string (e.g. "da" from "da:4b:3f:...")
-	var firstByte byte
-	_, err := fmt.Sscanf(mac[:2], "%02x", &firstByte)
-	if err != nil {
-		return false
-	}
-	return firstByte&0x02 != 0
 }

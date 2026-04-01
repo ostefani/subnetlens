@@ -19,7 +19,7 @@ var (
 	flagConcurrency int
 	flagBanners     bool
 	flagPlain       bool
-	flagAllAlive bool
+	flagAllAlive    bool
 )
 
 var rootCmd = &cobra.Command{
@@ -52,7 +52,7 @@ func init() {
 	scanCmd.Flags().BoolVar(&flagPlain, "plain", false,
 		"Plain text output instead of TUI")
 	scanCmd.Flags().BoolVar(&flagAllAlive, "all-alive", false,
-    "Show only hosts with at least one successful connection")
+		"Show only hosts with at least one successful connection")
 
 	rootCmd.AddCommand(scanCmd)
 }
@@ -66,7 +66,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		Timeout:     time.Duration(flagTimeout) * time.Millisecond,
 		Concurrency: flagConcurrency,
 		GrabBanners: flagBanners,
-		AllAlive: flagAllAlive,
+		AllAlive:    flagAllAlive,
 	}
 	if len(opts.Ports) == 0 {
 		opts.Ports = models.CommonPorts
@@ -90,25 +90,26 @@ func runPlain(opts models.ScanOptions) error {
 		},
 		OnHost: func(h *models.Host) {
 			fmt.Fprintln(os.Stderr)
-			hostOS := h.OS
+			snapshot := h.Snapshot()
+			hostOS := snapshot.OS
 
 			if hostOS == "" || hostOS == "Unknown" {
 				hostOS = "?"
 			}
 
-			vendor := h.Vendor
+			vendor := snapshot.Vendor
 			if vendor == "" {
 				vendor = "—"
 			}
 
-			device := h.Device
+			device := snapshot.Device
 			if device == "" {
 				device = "—"
 			}
 
-			fmt.Printf("\n[+] %-18s  %s\n", h.IP, h.Hostname)
+			fmt.Printf("\n[+] %-18s  %s\n", snapshot.IP, snapshot.Hostname)
 			fmt.Printf("    OS: %-20s  Device: %-25s  Vendor: %s\n", hostOS, device, vendor)
-			for _, p := range h.OpenPorts {
+			for _, p := range snapshot.OpenPorts {
 				fmt.Printf("    %-6d %-10s %s\n", p.Number, p.Service, p.Banner)
 			}
 		},

@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"sync"
+	"time"
+)
 
 type Port struct {
 	Number   int
@@ -19,6 +22,8 @@ const (
 )
 
 type Host struct {
+	mu sync.RWMutex
+
 	IP        string
 	Hostname  string
 	MAC       string
@@ -35,21 +40,323 @@ type Host struct {
 	alive bool
 }
 
-func (h *Host) MarkSeen(source string) {
+type HostSnapshot struct {
+	IP        string
+	Hostname  string
+	MAC       string
+	Vendor    string
+	Latency   time.Duration
+	OpenPorts []Port
+	OS        string
+	Device    string
+	SeenAt    time.Time
+	UpdatedAt time.Time
+	Source    string
+	Alive     bool
+}
+
+func NewHost(ip string) *Host {
+	return &Host{
+		IP:       ip,
+		Hostname: ip,
+	}
+}
+
+func (h *Host) Snapshot() HostSnapshot {
+	if h == nil {
+		return HostSnapshot{}
+	}
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	snapshot := HostSnapshot{
+		IP:        h.IP,
+		Hostname:  h.Hostname,
+		MAC:       h.MAC,
+		Vendor:    h.Vendor,
+		Latency:   h.Latency,
+		OS:        h.OS,
+		Device:    h.Device,
+		SeenAt:    h.SeenAt,
+		UpdatedAt: h.UpdatedAt,
+		Source:    h.Source,
+		Alive:     h.alive,
+	}
+	if len(h.OpenPorts) > 0 {
+		snapshot.OpenPorts = append([]Port(nil), h.OpenPorts...)
+	}
+
+	return snapshot
+}
+
+func (h *Host) MarkSeen(source string) bool {
+	if h == nil || source == "" {
+		return false
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	return h.markSeenLocked(source)
+}
+
+func (h *Host) markSeenLocked(source string) bool {
 	now := time.Now()
+	changed := false
 	if h.SeenAt.IsZero() {
 		h.SeenAt = now
+		changed = true
 	}
 	h.UpdatedAt = now
 	if h.Source == "" {
 		h.Source = source
+		changed = true
 	} else if h.Source != source && h.Source != "mixed" {
 		h.Source = "mixed"
+		changed = true
 	}
+
+	return changed
 }
 
-func (h *Host) IsAlive() bool   { return h.alive }
-func (h *Host) SetAlive(v bool) { h.alive = v }
+func (h *Host) IsAlive() bool {
+	if h == nil {
+		return false
+	}
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	return h.alive
+}
+
+func (h *Host) SetAlive(v bool) bool {
+	if h == nil {
+		return false
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.alive == v {
+		return false
+	}
+	h.alive = v
+	return true
+}
+
+func (h *Host) SetMAC(mac string) bool {
+	if h == nil || mac == "" {
+		return false
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.MAC == mac {
+		return false
+	}
+	h.MAC = mac
+	return true
+}
+
+func (h *Host) SetMACIfEmpty(mac string) bool {
+	if h == nil || mac == "" {
+		return false
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.MAC != "" {
+		return false
+	}
+	h.MAC = mac
+	return true
+}
+
+func (h *Host) SetHostname(name string) bool {
+	if h == nil || name == "" {
+		return false
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.Hostname == name {
+		return false
+	}
+	h.Hostname = name
+	return true
+}
+
+func (h *Host) SetHostnameIfEmptyOrIP(name string) bool {
+	if h == nil || name == "" {
+		return false
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.Hostname != "" && h.Hostname != h.IP {
+		return false
+	}
+	if h.Hostname == name {
+		return false
+	}
+	h.Hostname = name
+	return true
+}
+
+func (h *Host) SetVendor(vendor string) bool {
+	if h == nil || vendor == "" {
+		return false
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.Vendor == vendor {
+		return false
+	}
+	h.Vendor = vendor
+	return true
+}
+
+func (h *Host) SetVendorIfEmpty(vendor string) bool {
+	if h == nil || vendor == "" {
+		return false
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.Vendor != "" {
+		return false
+	}
+	h.Vendor = vendor
+	return true
+}
+
+func (h *Host) SetDevice(device string) bool {
+	if h == nil || device == "" {
+		return false
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.Device == device {
+		return false
+	}
+	h.Device = device
+	return true
+}
+
+func (h *Host) SetDeviceIfEmpty(device string) bool {
+	if h == nil || device == "" {
+		return false
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.Device != "" {
+		return false
+	}
+	h.Device = device
+	return true
+}
+
+func (h *Host) SetOS(hostOS string) bool {
+	if h == nil {
+		return false
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.OS == hostOS {
+		return false
+	}
+	h.OS = hostOS
+	return true
+}
+
+func (h *Host) SetLatency(latency time.Duration) bool {
+	if h == nil || latency <= 0 {
+		return false
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.Latency == latency {
+		return false
+	}
+	h.Latency = latency
+	return true
+}
+
+func (h *Host) SetLatencyIfZero(latency time.Duration) bool {
+	if h == nil || latency <= 0 {
+		return false
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.Latency != 0 {
+		return false
+	}
+	h.Latency = latency
+	return true
+}
+
+func (h *Host) SetOpenPorts(ports []Port) bool {
+	if h == nil {
+		return false
+	}
+
+	copied := append([]Port(nil), ports...)
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if len(h.OpenPorts) == len(copied) {
+		same := true
+		for i := range copied {
+			if h.OpenPorts[i] != copied[i] {
+				same = false
+				break
+			}
+		}
+		if same {
+			return false
+		}
+	}
+
+	h.OpenPorts = copied
+	return true
+}
+
+func (h *Host) AddPort(port Port) bool {
+	if h == nil {
+		return false
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	for _, existing := range h.OpenPorts {
+		if existing.Number == port.Number && existing.Protocol == port.Protocol {
+			return false
+		}
+	}
+	h.OpenPorts = append(h.OpenPorts, port)
+	return true
+}
 
 type ScanResult struct {
 	Subnet     string
@@ -78,7 +385,7 @@ type ScanOptions struct {
 	Timeout     time.Duration // per-connection timeout
 	Concurrency int           // parallel goroutines
 	GrabBanners bool
-	AllAlive bool
+	AllAlive    bool
 }
 
 var CommonPorts = []int{

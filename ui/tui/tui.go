@@ -47,22 +47,24 @@ type scanDoneMsg struct{ result *models.ScanResult }
 // --- Model ---
 
 type Model struct {
-	opts     models.ScanOptions
-	hostCh   chan *models.Host
-	progCh   chan [2]int
-	hosts    []*models.Host
-	done     int
-	total    int
-	finished bool
-	result   *models.ScanResult
-	err      error
+	opts      models.ScanOptions
+	hostCh    chan *models.Host
+	progCh    chan [2]int
+	hosts     []*models.Host
+	hostIndex map[string]int
+	done      int
+	total     int
+	finished  bool
+	result    *models.ScanResult
+	err       error
 }
 
 func New(opts models.ScanOptions) Model {
 	return Model{
-		opts:   opts,
-		hostCh: make(chan *models.Host, 32),
-		progCh: make(chan [2]int, 32),
+		opts:      opts,
+		hostCh:    make(chan *models.Host, 32),
+		progCh:    make(chan [2]int, 32),
+		hostIndex: make(map[string]int),
 	}
 }
 
@@ -83,7 +85,7 @@ func runScanCmd(opts models.ScanOptions, hostCh chan *models.Host, progCh chan [
 			Opts: opts,
 			OnHost: func(h *models.Host) {
 				hostCh <- h
-				
+
 			},
 			OnProgress: func(done, total int) {
 				select {
@@ -135,7 +137,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Once finished, m.hosts is owned by the authoritative result — do not
 		// append to it or the host will appear twice in the table.
 		if !m.finished {
-			m.hosts = append(m.hosts, msg.host)
+			ip := msg.host.Snapshot().IP
+			if _, exists := m.hostIndex[ip]; !exists {
+				m.hostIndex[ip] = len(m.hosts)
+				m.hosts = append(m.hosts, msg.host)
+			}
 		}
 		return m, waitForHost(m.hostCh)
 
@@ -150,6 +156,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Replace live-update list with the authoritative result list.
 		// This is the single point of truth; hostFoundMsg is ignored after this.
 		m.hosts = msg.result.Hosts
+		m.hostIndex = make(map[string]int, len(m.hosts))
+		for i, host := range m.hosts {
+			m.hostIndex[host.Snapshot().IP] = i
+		}
 		return m, nil
 	}
 
@@ -188,30 +198,31 @@ func (m Model) View() string {
 				case col == 4:
 					return dimStyle.Copy().Padding(0, 1)
 				case col == 5:
-        			return lipgloss.NewStyle().Foreground(lipgloss.Color("#f67b33")).Padding(0, 1)
+					return lipgloss.NewStyle().Foreground(lipgloss.Color("#f67b33")).Padding(0, 1)
 				default:
 					return lipgloss.NewStyle().Padding(0, 1)
 				}
 			})
 
 		for _, h := range m.hosts {
-			os := h.OS
+			snapshot := h.Snapshot()
+			os := snapshot.OS
 			if os == "" || os == "Unknown" {
 				os = "?"
 			}
-			mac := h.MAC
+			mac := snapshot.MAC
 			if mac == "" {
 				mac = "—"
 			}
-			vendor := h.Vendor
+			vendor := snapshot.Vendor
 			if vendor == "" {
 				vendor = "—"
 			}
-			device := h.Device
+			device := snapshot.Device
 			if device == "" {
 				device = "—"
 			}
-			t.Row(h.IP, h.Hostname, mac, vendor, os, device, formatPorts(h.OpenPorts))
+			t.Row(snapshot.IP, snapshot.Hostname, mac, vendor, os, device, formatPorts(snapshot.OpenPorts))
 		}
 
 		sb.WriteString(t.String())
