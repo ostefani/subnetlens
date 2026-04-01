@@ -24,7 +24,7 @@ const (
 type Host struct {
 	mu sync.RWMutex
 
-	IP        string
+	ip        string
 	Hostname  string
 	MAC       string
 	Vendor    string
@@ -57,9 +57,20 @@ type HostSnapshot struct {
 
 func NewHost(ip string) *Host {
 	return &Host{
-		IP:       ip,
+		ip:       ip,
 		Hostname: ip,
 	}
+}
+
+func (h *Host) IP() string {
+	if h == nil {
+		return ""
+	}
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	return h.ip
 }
 
 func (h *Host) Snapshot() HostSnapshot {
@@ -71,7 +82,7 @@ func (h *Host) Snapshot() HostSnapshot {
 	defer h.mu.RUnlock()
 
 	snapshot := HostSnapshot{
-		IP:        h.IP,
+		IP:        h.ip,
 		Hostname:  h.Hostname,
 		MAC:       h.MAC,
 		Vendor:    h.Vendor,
@@ -199,7 +210,7 @@ func (h *Host) SetHostnameIfEmptyOrIP(name string) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if h.Hostname != "" && h.Hostname != h.IP {
+	if h.Hostname != "" && h.Hostname != h.ip {
 		return false
 	}
 	if h.Hostname == name {
