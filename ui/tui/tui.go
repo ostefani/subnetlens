@@ -17,14 +17,40 @@ import (
 // --- Styles ---
 
 var (
+	layoutStyle = lipgloss.NewStyle().
+			MarginLeft(2)
+
 	progressStyle = lipgloss.NewStyle().
 			Padding(1, 3).
 			Foreground(lipgloss.Color("#d9fbff"))
 
 	localMachineStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#d9fbff00")).
+				Bold(true).
+				Foreground(lipgloss.Color("#d9fbff")).
 				Padding(1, 3).
 				Background(lipgloss.Color("#0c161b"))
+
+	localMachineSectionStyle = lipgloss.NewStyle().
+					Bold(true).
+					Foreground(lipgloss.Color("#59bfc4")).
+					Background(lipgloss.Color("#0c161b"))
+
+	localMachineHostStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#A8FF78")).
+				Bold(true).
+				Background(lipgloss.Color("#0c161b"))
+
+	localMachineHeaderStyle = lipgloss.NewStyle().
+				Background(lipgloss.Color("#0c161b")).
+				MarginTop(1)
+
+	localMachineSpacerStyle = lipgloss.NewStyle().
+				Background(lipgloss.Color("#0c161b"))
+
+	localMachineBadgeStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#555555")).
+				Background(lipgloss.Color("#d9e0e6")).
+				Padding(0, 1)
 
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
@@ -37,14 +63,14 @@ var (
 			Foreground(lipgloss.Color("#59bfc4"))
 
 	hostStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#A8FF78")).
+			Foreground(lipgloss.Color("#8bf850")).
 			Bold(true)
 
 	portStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FFD700"))
 
 	dimStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#555555"))
+			Foreground(lipgloss.Color("#7e7e7e"))
 
 	noteStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#f67b33"))
@@ -60,7 +86,33 @@ var (
 
 	progressMetaStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#6d7478"))
+
+	tableBorderStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("240"))
+
+	tableHeaderStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("#59bfc4")).
+				Padding(0, 1)
+
+	tableHostStyle = hostStyle.
+			Padding(0, 1)
+
+	tableVendorStyle = vendorStyle.
+				Padding(0, 1)
+
+	tableOSStyle = dimStyle.
+			Padding(0, 1)
+
+	tableDeviceStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#f67b33")).
+				Padding(0, 1)
+
+	tableCellStyle = lipgloss.NewStyle().
+			Padding(0, 1)
 )
+
+const progressBarWidth = 40
 
 // --- Messages ---
 
@@ -86,7 +138,6 @@ type Model struct {
 	finished  bool
 	result    *models.ScanResult
 	err       error
-	width     int
 }
 
 func New(opts models.ScanOptions) Model {
@@ -172,10 +223,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
-	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		return m, nil
-
 	case hostFoundMsg:
 		if !m.finished {
 			ip := msg.host.Snapshot().IP
@@ -221,68 +268,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) View() string {
 	if m.err != nil {
-		return fmt.Sprintf("\n  Error: %v\n\n", m.err)
+		return layoutStyle.Render(fmt.Sprintf("\nError: %v\n", m.err))
 	}
 
 	var sb strings.Builder
 
-	sb.WriteString(titleStyle.Render("✧ SubnetLens ✧"))
+	sb.WriteString(titleStyle.Render("✧ SUBNETLENS ✧"))
 	sb.WriteString("\n")
-	sb.WriteString(centerBlock(renderProgress(m.done, m.total), lipgloss.Width(sb.String())))
+	sb.WriteString(renderProgress(m.done, m.total))
 	sb.WriteString("\n\n")
 
 	if localBlock := renderLocalMachine(m.local); localBlock != "" {
-		sb.WriteString(centerBlock(localBlock, lipgloss.Width(sb.String())))
+		sb.WriteString(localBlock)
 		sb.WriteString("\n\n")
 	}
 
 	visibleHosts := filterVisibleHosts(m.hosts, m.local)
 	if len(visibleHosts) > 0 {
-		headers := []string{"IP ADDRESS", "HOSTNAME", "MAC", "VENDOR", "OS", "DEVICE", "OPEN PORTS"}
-
-		t := table.New().
-			Border(lipgloss.NormalBorder()).
-			BorderStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("240"))).
-			Headers(headers...).
-			StyleFunc(func(row, col int) lipgloss.Style {
-				switch {
-				case row == 0:
-					return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#59bfc4")).Padding(0, 1)
-				case col == 0:
-					return hostStyle.Copy().Padding(0, 1)
-				case col == 3:
-					return vendorStyle.Copy().Padding(0, 1)
-				case col == 4:
-					return dimStyle.Copy().Padding(0, 1)
-				case col == 5:
-					return lipgloss.NewStyle().Foreground(lipgloss.Color("#f67b33")).Padding(0, 1)
-				default:
-					return lipgloss.NewStyle().Padding(0, 1)
-				}
-			})
-
-		for _, h := range visibleHosts {
-			snapshot := h.Snapshot()
-			os := snapshot.OS
-			if os == "" || os == "Unknown" {
-				os = "?"
-			}
-			mac := snapshot.MAC
-			if mac == "" {
-				mac = "—"
-			}
-			vendor := snapshot.Vendor
-			if vendor == "" {
-				vendor = "—"
-			}
-			device := snapshot.Device
-			if device == "" {
-				device = "—"
-			}
-			t.Row(snapshot.IP, snapshot.Hostname, mac, vendor, os, device, formatPorts(snapshot.OpenPorts))
-		}
-
-		sb.WriteString(t.String())
+		sb.WriteString(renderHostTable(visibleHosts))
 	} else if m.done > 0 {
 		sb.WriteString(dimStyle.Render("  Searching for hosts..."))
 	}
@@ -294,7 +297,7 @@ func (m Model) View() string {
 		sb.WriteString(dimStyle.Render("  Press 'q' or 'ctrl+c' to exit"))
 	}
 
-	return sb.String()
+	return layoutStyle.Render(sb.String())
 }
 
 func renderLocalMachine(info scanner.LocalDiscoveryInfo) string {
@@ -308,13 +311,18 @@ func renderLocalMachine(info scanner.LocalDiscoveryInfo) string {
 	}
 
 	var lines []string
-	lines = append(lines, sectionStyle.Render("Local Machine"))
+	lines = append(lines, localMachineSectionStyle.Render("Local Machine"))
 
-	header := hostStyle.Render(name)
+	header := localMachineHostStyle.Render(name)
 	if info.Interface != "" {
-		header = fmt.Sprintf("%s  %s", header, dimStyle.Render("("+info.Interface+")"))
+		header = lipgloss.JoinHorizontal(
+			lipgloss.Top,
+			header,
+			localMachineSpacerStyle.Render("  "),
+			localMachineBadgeStyle.Render("("+info.Interface+")"),
+		)
 	}
-	lines = append(lines, header)
+	lines = append(lines, localMachineHeaderStyle.Render(header))
 
 	if info.InSubnet {
 		ip := info.IP
@@ -340,13 +348,6 @@ func renderLocalMachine(info scanner.LocalDiscoveryInfo) string {
 	return localMachineStyle.Render(strings.Join(lines, "\n"))
 }
 
-func centerBlock(block string, screenWidth int) string {
-	if screenWidth <= 0 {
-		return block
-	}
-	return lipgloss.PlaceHorizontal(screenWidth, lipgloss.Center, block)
-}
-
 func filterVisibleHosts(hosts []*models.Host, local scanner.LocalDiscoveryInfo) []*models.Host {
 	if !local.InScanRange || local.IP == "" {
 		return hosts
@@ -362,6 +363,54 @@ func filterVisibleHosts(hosts []*models.Host, local scanner.LocalDiscoveryInfo) 
 	return visible
 }
 
+func renderHostTable(hosts []*models.Host) string {
+	headers := []string{"IP ADDRESS", "HOSTNAME", "MAC", "VENDOR", "OS", "DEVICE", "OPEN PORTS"}
+
+	t := table.New().
+		Border(lipgloss.NormalBorder()).
+		BorderStyle(tableBorderStyle).
+		Headers(headers...).
+		StyleFunc(hostTableStyle)
+
+	for _, host := range hosts {
+		if host == nil {
+			continue
+		}
+		t.Row(hostTableRow(host.Snapshot())...)
+	}
+
+	return t.String()
+}
+
+func hostTableStyle(row, col int) lipgloss.Style {
+	switch {
+	case row == 0:
+		return tableHeaderStyle
+	case col == 0:
+		return tableHostStyle
+	case col == 3:
+		return tableVendorStyle
+	case col == 4:
+		return tableOSStyle
+	case col == 5:
+		return tableDeviceStyle
+	default:
+		return tableCellStyle
+	}
+}
+
+func hostTableRow(snapshot models.HostSnapshot) []string {
+	return []string{
+		snapshot.IP,
+		snapshot.Hostname,
+		orDefault(snapshot.MAC, "—"),
+		orDefault(snapshot.Vendor, "—"),
+		hostOSLabel(snapshot.OS),
+		orDefault(snapshot.Device, "—"),
+		formatPorts(snapshot.OpenPorts),
+	}
+}
+
 func formatPorts(ports []models.Port) string {
 	if len(ports) == 0 {
 		return "—"
@@ -374,23 +423,48 @@ func formatPorts(ports []models.Port) string {
 }
 
 func renderProgress(done, total int) string {
-	width := 40
-	if total == 0 {
+	if total <= 0 {
 		total = 1
 	}
-	filled := done * width / total
-	bar := lipgloss.JoinHorizontal(
+
+	pct := done * 100 / total
+	content := lipgloss.JoinVertical(lipgloss.Left,
+		sectionStyle.Render("Scanning Hosts"),
+		renderProgressBar(done, total),
+		progressMetaStyle.Render(fmt.Sprintf("%3d%%  (%d/%d)", pct, done, total)),
+	)
+
+	return progressStyle.Render(content)
+}
+
+func renderProgressBar(done, total int) string {
+	filled := done * progressBarWidth / total
+	if filled < 0 {
+		filled = 0
+	}
+	if filled > progressBarWidth {
+		filled = progressBarWidth
+	}
+
+	return lipgloss.JoinHorizontal(
 		lipgloss.Top,
 		barFill.Render(strings.Repeat("█", filled)),
-		barEmpty.Render(strings.Repeat("░", width-filled)),
+		barEmpty.Render(strings.Repeat("░", progressBarWidth-filled)),
 	)
-	pct := done * 100 / total
-	content := strings.Join([]string{
-		sectionStyle.Render("Scanning Hosts"),
-		bar,
-		progressMetaStyle.Render(fmt.Sprintf("%3d%%  (%d/%d)", pct, done, total)),
-	}, "\n")
-	return progressStyle.Render(content)
+}
+
+func hostOSLabel(hostOS string) string {
+	if hostOS == "" || hostOS == "Unknown" {
+		return "?"
+	}
+	return hostOS
+}
+
+func orDefault(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
 }
 
 // Run starts the TUI program.
