@@ -116,13 +116,3 @@ func (e *Engine) Run(ctx context.Context) *models.ScanResult {
 
 	return result
 }
-
-func DefaultOptions(subnet string) models.ScanOptions {
-	return models.ScanOptions{
-		Subnet:      subnet,
-		Ports:       models.CommonPorts,
-		Timeout:     500 * time.Millisecond,
-		Concurrency: 100,
-		GrabBanners: true,
-	}
-}
