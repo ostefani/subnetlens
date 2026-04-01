@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"iter"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -41,6 +42,12 @@ func DiscoverHosts(
 		}
 
 		debugLog("discovery", "sweeping %d IPs in %s", targets.total, opts.Subnet)
+
+		for _, update := range localHostUpdates(targets.contains) {
+			if !sendHostUpdate(ctx, registry.updates, update) {
+				return
+			}
+		}
 
 		go triggerMulticastDiscovery(ctx)
 
@@ -99,6 +106,66 @@ func DiscoverHosts(
 	}()
 
 	return out
+}
+
+func localHostUpdates(contains func(string) bool) []hostUpdate {
+	if contains == nil {
+		return nil
+	}
+
+	hostname, err := os.Hostname()
+	if err != nil {
+		hostname = ""
+	}
+
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil
+	}
+
+	seen := make(map[string]bool)
+	updates := make([]hostUpdate, 0, len(ifaces))
+
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+
+		mac := normaliseMAC(iface.HardwareAddr.String())
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+
+		for _, addr := range addrs {
+			ipNet, ok := addr.(*net.IPNet)
+			if !ok {
+				continue
+			}
+
+			ip4 := ipNet.IP.To4()
+			if ip4 == nil {
+				continue
+			}
+
+			ip := ip4.String()
+			if !contains(ip) || seen[ip] {
+				continue
+			}
+
+			seen[ip] = true
+			updates = append(updates, hostUpdate{
+				ip:        ip,
+				mac:       mac,
+				name:      hostname,
+				alive:     true,
+				seenBy:    "self",
+				confirmed: true,
+			})
+		}
+	}
+
+	return updates
 }
 
 func triggerMulticastDiscovery(ctx context.Context) {
