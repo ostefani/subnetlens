@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -82,6 +83,10 @@ func runScan(cmd *cobra.Command, args []string) error {
 // runPlain outputs results as plain text — useful for scripting / CI pipelines.
 func runPlain(opts models.ScanOptions) error {
 	fmt.Fprintf(os.Stdout, "Scanning %s ...\n\n", opts.Subnet)
+	var mu sync.Mutex
+	pending := make(map[string]models.HostSnapshot)
+	printed := make(map[string]bool)
+	order := make([]string, 0)
 
 	eng := &scanner.Engine{
 		Opts: opts,
@@ -89,39 +94,84 @@ func runPlain(opts models.ScanOptions) error {
 			fmt.Fprintf(os.Stderr, "\r  Probing hosts: %d/%d", done, total)
 		},
 		OnHost: func(h *models.Host) {
-			fmt.Fprintln(os.Stderr)
 			snapshot := h.Snapshot()
-			hostOS := snapshot.OS
 
-			if hostOS == "" || hostOS == "Unknown" {
-				hostOS = "?"
+			mu.Lock()
+			if _, seen := pending[snapshot.IP]; !seen {
+				order = append(order, snapshot.IP)
 			}
+			pending[snapshot.IP] = snapshot
 
-			vendor := snapshot.Vendor
-			if vendor == "" {
-				vendor = "—"
+			// Each update refreshes the buffered snapshot for host.
+			if printed[snapshot.IP] || !plainHostReady(snapshot) {
+				mu.Unlock()
+				return
 			}
+			printed[snapshot.IP] = true
+			mu.Unlock()
 
-			device := snapshot.Device
-			if device == "" {
-				device = "—"
-			}
-
-			fmt.Printf("\n[+] %-18s  %s\n", snapshot.IP, snapshot.Hostname)
-			fmt.Printf("    OS: %-20s  Device: %-25s  Vendor: %s\n", hostOS, device, vendor)
-			for _, p := range snapshot.OpenPorts {
-				fmt.Printf("    %-6d %-10s %s\n", p.Number, p.Service, p.Banner)
-			}
+			// Print as soon as the host looks complete enough for plain output.
+			fmt.Fprintln(os.Stderr)
+			printPlainHost(snapshot)
 		},
 	}
 
 	result := eng.Run(context.Background())
 	fmt.Fprintf(os.Stderr, "\r                              \r")
 
+	mu.Lock()
+	deferred := make([]models.HostSnapshot, 0, len(order))
+	for _, ip := range order {
+		if printed[ip] {
+			continue
+		}
+		if snapshot, ok := pending[ip]; ok {
+			deferred = append(deferred, snapshot)
+			printed[ip] = true
+		}
+	}
+	mu.Unlock()
+
+	for _, snapshot := range deferred {
+		printPlainHost(snapshot)
+	}
+
 	fmt.Printf("\n─────────────────────────────────────────\n")
 	fmt.Printf("Scan complete in %s\n", result.Duration().Round(time.Millisecond))
 	fmt.Printf("%d host(s) found on %s\n", len(result.AliveHosts()), opts.Subnet)
 	return nil
+}
+
+func plainHostReady(snapshot models.HostSnapshot) bool {
+	return snapshot.Hostname != "" &&
+		snapshot.Hostname != snapshot.IP &&
+		snapshot.MAC != "" &&
+		snapshot.Vendor != "" &&
+		snapshot.Device != ""
+}
+
+func printPlainHost(snapshot models.HostSnapshot) {
+	hostOS := snapshot.OS
+	if hostOS == "" || hostOS == "Unknown" {
+		hostOS = "?"
+	}
+
+	vendor := snapshot.Vendor
+	if vendor == "" {
+		vendor = "—"
+	}
+
+	device := snapshot.Device
+	if device == "" {
+		device = "—"
+	}
+
+	// Snapshot contains the authoritative host state after all updates settle.
+	fmt.Printf("\n[+] %-18s  %s\n", snapshot.IP, snapshot.Hostname)
+	fmt.Printf("    OS: %-20s  Device: %-25s  Vendor: %s\n", hostOS, device, vendor)
+	for _, p := range snapshot.OpenPorts {
+		fmt.Printf("    %-6d %-10s %s\n", p.Number, p.Service, p.Banner)
+	}
 }
 
 func Execute() {
