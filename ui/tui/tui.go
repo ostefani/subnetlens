@@ -114,6 +114,14 @@ var (
 
 const progressBarWidth = 40
 
+const (
+	defaultWindowWidth  = 120
+	defaultWindowHeight = 32
+	hostTableMinHeight  = 5
+	hostTableFrameLines = 4
+	layoutMarginLeft    = 2
+)
+
 // --- Messages ---
 
 type hostFoundMsg struct{ host *models.Host }
@@ -127,26 +135,31 @@ type scanDoneMsg struct {
 // --- Model ---
 
 type Model struct {
-	opts      models.ScanOptions
-	local     scanner.LocalDiscoveryInfo
-	hostCh    chan *models.Host
-	progCh    chan [2]int
-	hosts     []*models.Host
-	hostIndex map[string]int
-	done      int
-	total     int
-	finished  bool
-	result    *models.ScanResult
-	err       error
+	opts         models.ScanOptions
+	local        scanner.LocalDiscoveryInfo
+	hostCh       chan *models.Host
+	progCh       chan [2]int
+	hosts        []*models.Host
+	hostIndex    map[string]int
+	done         int
+	total        int
+	finished     bool
+	result       *models.ScanResult
+	err          error
+	windowWidth  int
+	windowHeight int
+	tableOffset  int
 }
 
 func New(opts models.ScanOptions) Model {
 	return Model{
-		opts:      opts,
-		local:     scanner.LocalDiscoveryInfoForTarget(opts.Subnet),
-		hostCh:    make(chan *models.Host, 32),
-		progCh:    make(chan [2]int, 32),
-		hostIndex: make(map[string]int),
+		opts:         opts,
+		local:        scanner.LocalDiscoveryInfoForTarget(opts.Subnet),
+		hostCh:       make(chan *models.Host, 32),
+		progCh:       make(chan [2]int, 32),
+		hostIndex:    make(map[string]int),
+		windowWidth:  defaultWindowWidth,
+		windowHeight: defaultWindowHeight,
 	}
 }
 
@@ -219,18 +232,32 @@ func waitForProgress(progCh chan [2]int) tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		if msg.String() == "q" || msg.String() == "ctrl+c" {
+		switch msg.String() {
+		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "up", "k":
+			m.scrollTable(-1)
+		case "down", "j":
+			m.scrollTable(1)
+		case "pgup", "b":
+			m.scrollTable(-m.tablePageStep())
+		case "pgdown", " ":
+			m.scrollTable(m.tablePageStep())
+		case "home", "g":
+			m.tableOffset = 0
+		case "end", "G":
+			m.tableOffset = m.maxTableOffset()
 		}
+		return m, nil
+
+	case tea.WindowSizeMsg:
+		m.windowWidth = msg.Width
+		m.windowHeight = msg.Height
+		m.clampTableOffset()
+		return m, nil
 
 	case hostFoundMsg:
-		if !m.finished {
-			ip := msg.host.Snapshot().IP
-			if _, exists := m.hostIndex[ip]; !exists {
-				m.hostIndex[ip] = len(m.hosts)
-				m.hosts = append(m.hosts, msg.host)
-			}
-		}
+		m.upsertHost(msg.host)
 		return m, waitForHost(m.hostCh)
 
 	case progressMsg:
@@ -244,11 +271,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case scanDoneMsg:
 		m.finished = true
 		m.result = msg.result
-		m.hosts = msg.result.Hosts
-		m.hostIndex = make(map[string]int, len(m.hosts))
-		for i, host := range m.hosts {
-			m.hostIndex[host.Snapshot().IP] = i
-		}
+		m.mergeHosts(msg.result.Hosts)
+		m.clampTableOffset()
 		switch {
 		case msg.finalTotal > 0:
 			m.total = msg.finalTotal
@@ -268,36 +292,225 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) View() string {
 	if m.err != nil {
-		return layoutStyle.Render(fmt.Sprintf("\nError: %v\n", m.err))
+		return layoutStyle.
+			MaxWidth(m.contentWidth()).
+			Render(fmt.Sprintf("\nError: %v\n", m.err))
 	}
 
-	var sb strings.Builder
+	visibleHosts := m.visibleHosts()
+	sections := []string{m.renderHeader()}
 
-	sb.WriteString(titleStyle.Render("✧ SUBNETLENS ✧"))
-	sb.WriteString("\n")
-	sb.WriteString(renderProgress(m.done, m.total))
-	sb.WriteString("\n\n")
-
-	if localBlock := renderLocalMachine(m.local); localBlock != "" {
-		sb.WriteString(localBlock)
-		sb.WriteString("\n\n")
-	}
-
-	visibleHosts := filterVisibleHosts(m.hosts, m.local)
 	if len(visibleHosts) > 0 {
-		sb.WriteString(renderHostTable(visibleHosts))
+		viewport := m.hostTableViewport(visibleHosts)
+		if viewport.rows > 0 {
+			tableBlock := renderHostTable(visibleHosts[viewport.start:viewport.end], viewport.width)
+			status := renderHostTableStatus(len(visibleHosts), viewport.start, viewport.end)
+			sections = append(sections, joinLines(tableBlock, status))
+		} else {
+			sections = append(sections, noteStyle.Render("Terminal is too small to render the host table. Expand the viewport to continue."))
+		}
 	} else if m.done > 0 {
-		sb.WriteString(dimStyle.Render("  Searching for hosts..."))
+		sections = append(sections, dimStyle.Render("  Searching for hosts..."))
 	}
 
-	if m.finished {
-		sb.WriteString(fmt.Sprintf("\n  Scan complete. Found %d host(s) in %s\n",
+	if summary := m.renderSummary(); summary != "" {
+		sections = append(sections, summary)
+	}
+
+	return layoutStyle.
+		MaxWidth(m.contentWidth()).
+		Render(joinSections(sections...))
+}
+
+func (m Model) renderHeader() string {
+	return joinSections(
+		titleStyle.Render("✧ SUBNETLENS ✧"),
+		renderProgress(m.done, m.total),
+		renderLocalMachine(m.local),
+	)
+}
+
+func (m Model) renderSummary() string {
+	if !m.finished || m.result == nil {
+		return ""
+	}
+
+	return strings.Join([]string{
+		fmt.Sprintf("  Scan complete. Found %d host(s) in %s",
 			len(m.result.AliveHosts()),
-			m.result.Duration().Round(0)))
-		sb.WriteString(dimStyle.Render("  Press 'q' or 'ctrl+c' to exit"))
+			m.result.Duration().Round(0)),
+		dimStyle.Render("  Press 'q' or 'ctrl+c' to exit."),
+	}, "\n")
+}
+
+func (m Model) visibleHosts() []*models.Host {
+	return filterVisibleHosts(m.hosts, m.local)
+}
+
+func (m *Model) upsertHost(host *models.Host) {
+	if host == nil {
+		return
 	}
 
-	return layoutStyle.Render(sb.String())
+	ip := host.Snapshot().IP
+	if ip == "" {
+		return
+	}
+
+	if idx, exists := m.hostIndex[ip]; exists {
+		// Keep the streamed order stable while refreshing the pointer in case
+		// the final result slice carries the authoritative host instance.
+		m.hosts[idx] = host
+		return
+	}
+
+	m.hostIndex[ip] = len(m.hosts)
+	m.hosts = append(m.hosts, host)
+	m.clampTableOffset()
+}
+
+func (m *Model) mergeHosts(hosts []*models.Host) {
+	for _, host := range hosts {
+		m.upsertHost(host)
+	}
+}
+
+func (m Model) contentWidth() int {
+	width := m.windowWidth - layoutMarginLeft
+	if width < 1 {
+		return 1
+	}
+	return width
+}
+
+func (m Model) contentHeight(content string) int {
+	if content == "" {
+		return 0
+	}
+	return lipgloss.Height(
+		lipgloss.NewStyle().
+			MaxWidth(m.contentWidth()).
+			Render(content),
+	)
+}
+
+func (m *Model) scrollTable(delta int) {
+	if delta == 0 {
+		return
+	}
+	m.tableOffset += delta
+	m.clampTableOffset()
+}
+
+func (m *Model) clampTableOffset() {
+	if m.tableOffset < 0 {
+		m.tableOffset = 0
+		return
+	}
+	maxOffset := m.maxTableOffset()
+	if m.tableOffset > maxOffset {
+		m.tableOffset = maxOffset
+	}
+}
+
+func (m Model) maxTableOffset() int {
+	viewport := m.hostTableViewport(m.visibleHosts())
+	if viewport.rows == 0 {
+		return 0
+	}
+	maxOffset := len(m.visibleHosts()) - viewport.rows
+	if maxOffset < 0 {
+		return 0
+	}
+	return maxOffset
+}
+
+func (m Model) tablePageStep() int {
+	viewport := m.hostTableViewport(m.visibleHosts())
+	if viewport.rows <= 1 {
+		return 1
+	}
+	return viewport.rows - 1
+}
+
+type tableViewport struct {
+	width int
+	rows  int
+	start int
+	end   int
+}
+
+func (m Model) hostTableViewport(hosts []*models.Host) tableViewport {
+	if len(hosts) == 0 {
+		return tableViewport{width: m.contentWidth()}
+	}
+
+	availableHeight := m.windowHeight - m.contentHeight(m.renderHeader()) - 1
+	if availableHeight < 0 {
+		availableHeight = 0
+	}
+
+	// The table is rendered as its own section, followed by a one-line status.
+	availableHeight--
+	if summary := m.renderSummary(); summary != "" {
+		availableHeight -= m.contentHeight(summary) + 1
+	}
+
+	if availableHeight < hostTableMinHeight {
+		return tableViewport{width: m.contentWidth()}
+	}
+
+	rows := availableHeight - hostTableFrameLines
+	if rows < 1 {
+		return tableViewport{width: m.contentWidth()}
+	}
+
+	maxStart := len(hosts) - rows
+	if maxStart < 0 {
+		maxStart = 0
+	}
+
+	start := m.tableOffset
+	if start < 0 {
+		start = 0
+	}
+	if start > maxStart {
+		start = maxStart
+	}
+
+	end := start + rows
+	if end > len(hosts) {
+		end = len(hosts)
+	}
+
+	return tableViewport{
+		width: m.contentWidth(),
+		rows:  rows,
+		start: start,
+		end:   end,
+	}
+}
+
+func joinSections(sections ...string) string {
+	filtered := make([]string, 0, len(sections))
+	for _, section := range sections {
+		if section == "" {
+			continue
+		}
+		filtered = append(filtered, section)
+	}
+	return strings.Join(filtered, "\n\n")
+}
+
+func joinLines(lines ...string) string {
+	filtered := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		filtered = append(filtered, line)
+	}
+	return strings.Join(filtered, "\n")
 }
 
 func renderLocalMachine(info scanner.LocalDiscoveryInfo) string {
@@ -363,14 +576,19 @@ func filterVisibleHosts(hosts []*models.Host, local scanner.LocalDiscoveryInfo) 
 	return visible
 }
 
-func renderHostTable(hosts []*models.Host) string {
+func renderHostTable(hosts []*models.Host, width int) string {
 	headers := []string{"IP ADDRESS", "HOSTNAME", "MAC", "VENDOR", "OS", "DEVICE", "OPEN PORTS"}
 
 	t := table.New().
 		Border(lipgloss.NormalBorder()).
 		BorderStyle(tableBorderStyle).
 		Headers(headers...).
-		StyleFunc(hostTableStyle)
+		StyleFunc(hostTableStyle).
+		Wrap(false)
+
+	if width > 0 {
+		t.Width(width)
+	}
 
 	for _, host := range hosts {
 		if host == nil {
@@ -384,7 +602,7 @@ func renderHostTable(hosts []*models.Host) string {
 
 func hostTableStyle(row, col int) lipgloss.Style {
 	switch {
-	case row == 0:
+	case row == table.HeaderRow:
 		return tableHeaderStyle
 	case col == 0:
 		return tableHostStyle
@@ -397,6 +615,23 @@ func hostTableStyle(row, col int) lipgloss.Style {
 	default:
 		return tableCellStyle
 	}
+}
+
+func renderHostTableStatus(total, start, end int) string {
+	if total == 0 || end == 0 {
+		return ""
+	}
+
+	if start == 0 && end == total {
+		return dimStyle.Render(fmt.Sprintf("  Hosts visible: %d", total))
+	}
+
+	return dimStyle.Render(fmt.Sprintf(
+		"  Showing hosts %d-%d of %d. Use ↑/↓, PgUp/PgDn, Home/End to scroll.",
+		start+1,
+		end,
+		total,
+	))
 }
 
 func hostTableRow(snapshot models.HostSnapshot) []string {
