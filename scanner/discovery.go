@@ -19,6 +19,15 @@ type targetSpec struct {
 	contains func(string) bool
 }
 
+type LocalDiscoveryInfo struct {
+	Hostname    string
+	Interface   string
+	IP          string
+	MAC         string
+	InSubnet    bool
+	InScanRange bool
+}
+
 func DiscoverHosts(
 	ctx context.Context,
 	opts models.ScanOptions,
@@ -43,7 +52,8 @@ func DiscoverHosts(
 
 		debugLog("discovery", "sweeping %d IPs in %s", targets.total, opts.Subnet)
 
-		for _, update := range localHostUpdates(targets.contains) {
+		localInfo := localDiscoveryInfoForTarget(opts.Subnet, targets.contains)
+		for _, update := range localHostUpdates(localInfo) {
 			if !sendHostUpdate(ctx, registry.updates, update) {
 				return
 			}
@@ -108,30 +118,81 @@ func DiscoverHosts(
 	return out
 }
 
-func localHostUpdates(contains func(string) bool) []hostUpdate {
-	if contains == nil {
+func LocalDiscoveryInfoForTarget(target string) LocalDiscoveryInfo {
+	var contains func(string) bool
+	targets, err := expandTargets(target)
+	if err == nil {
+		contains = targets.contains
+	}
+	return localDiscoveryInfoForTarget(target, contains)
+}
+
+func localDiscoveryInfoForTarget(target string, contains func(string) bool) LocalDiscoveryInfo {
+	info := LocalDiscoveryInfo{
+		Hostname: localHostname(),
+	}
+
+	if iface, srcIP, err := selectARPInterface(target); err == nil {
+		info.InSubnet = true
+		populateLocalDiscoveryInfo(&info, iface, srcIP, contains)
+		return info
+	}
+
+	iface, srcIP := fallbackDiscoveryInterface()
+	populateLocalDiscoveryInfo(&info, iface, srcIP, contains)
+	return info
+}
+
+func localHostUpdates(info LocalDiscoveryInfo) []hostUpdate {
+	if !info.InScanRange || info.IP == "" {
 		return nil
 	}
 
+	return []hostUpdate{{
+		ip:     info.IP,
+		mac:    info.MAC,
+		name:   info.Hostname,
+		alive:  true,
+		seenBy: "self",
+	}}
+}
+
+func localHostname() string {
 	hostname, err := os.Hostname()
 	if err != nil {
-		hostname = ""
+		return ""
+	}
+	return hostname
+}
+
+func populateLocalDiscoveryInfo(info *LocalDiscoveryInfo, iface *net.Interface, ip net.IP, contains func(string) bool) {
+	if info == nil || iface == nil || ip == nil {
+		return
 	}
 
+	info.Interface = iface.Name
+	info.IP = ip.String()
+	info.MAC = normaliseMAC(iface.HardwareAddr.String())
+	if contains != nil {
+		info.InScanRange = contains(info.IP)
+	}
+}
+
+func fallbackDiscoveryInterface() (*net.Interface, net.IP) {
 	ifaces, err := net.Interfaces()
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 
-	seen := make(map[string]bool)
-	updates := make([]hostUpdate, 0, len(ifaces))
+	bestScore := -1
+	var bestIface *net.Interface
+	var bestIP net.IP
 
 	for _, iface := range ifaces {
-		if iface.Flags&net.FlagUp == 0 {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
 			continue
 		}
 
-		mac := normaliseMAC(iface.HardwareAddr.String())
 		addrs, err := iface.Addrs()
 		if err != nil {
 			continue
@@ -144,28 +205,33 @@ func localHostUpdates(contains func(string) bool) []hostUpdate {
 			}
 
 			ip4 := ipNet.IP.To4()
-			if ip4 == nil {
+			if ip4 == nil || ip4.IsLoopback() {
 				continue
 			}
 
-			ip := ip4.String()
-			if !contains(ip) || seen[ip] {
+			score := 0
+			if ip4.IsPrivate() {
+				score += 2
+			}
+			if !ip4.IsLinkLocalUnicast() {
+				score++
+			}
+			if iface.Flags&net.FlagMulticast != 0 {
+				score++
+			}
+
+			if score <= bestScore {
 				continue
 			}
 
-			seen[ip] = true
-			updates = append(updates, hostUpdate{
-				ip:        ip,
-				mac:       mac,
-				name:      hostname,
-				alive:     true,
-				seenBy:    "self",
-				confirmed: true,
-			})
+			candidate := iface
+			bestIface = &candidate
+			bestIP = append(net.IP(nil), ip4...)
+			bestScore = score
 		}
 	}
 
-	return updates
+	return bestIface, bestIP
 }
 
 func triggerMulticastDiscovery(ctx context.Context) {

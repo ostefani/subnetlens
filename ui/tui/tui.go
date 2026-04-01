@@ -22,6 +22,10 @@ var (
 			Foreground(lipgloss.Color("#7DF9FF")).
 			MarginBottom(1)
 
+	sectionStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#59bfc4"))
+
 	hostStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#A8FF78")).
 			Bold(true)
@@ -31,6 +35,9 @@ var (
 
 	dimStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#555555"))
+
+	noteStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#f67b33"))
 
 	vendorStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#CC99FF"))
@@ -53,6 +60,7 @@ type scanDoneMsg struct {
 
 type Model struct {
 	opts      models.ScanOptions
+	local     scanner.LocalDiscoveryInfo
 	hostCh    chan *models.Host
 	progCh    chan [2]int
 	hosts     []*models.Host
@@ -67,6 +75,7 @@ type Model struct {
 func New(opts models.ScanOptions) Model {
 	return Model{
 		opts:      opts,
+		local:     scanner.LocalDiscoveryInfoForTarget(opts.Subnet),
 		hostCh:    make(chan *models.Host, 32),
 		progCh:    make(chan [2]int, 32),
 		hostIndex: make(map[string]int),
@@ -201,7 +210,13 @@ func (m Model) View() string {
 	sb.WriteString(renderProgress(m.done, m.total))
 	sb.WriteString("\n\n")
 
-	if len(m.hosts) > 0 {
+	if localBlock := renderLocalMachine(m.local); localBlock != "" {
+		sb.WriteString(localBlock)
+		sb.WriteString("\n\n")
+	}
+
+	visibleHosts := filterVisibleHosts(m.hosts, m.local)
+	if len(visibleHosts) > 0 {
 		headers := []string{"IP ADDRESS", "HOSTNAME", "MAC", "VENDOR", "OS", "DEVICE", "OPEN PORTS"}
 
 		t := table.New().
@@ -225,7 +240,7 @@ func (m Model) View() string {
 				}
 			})
 
-		for _, h := range m.hosts {
+		for _, h := range visibleHosts {
 			snapshot := h.Snapshot()
 			os := snapshot.OS
 			if os == "" || os == "Unknown" {
@@ -259,6 +274,60 @@ func (m Model) View() string {
 	}
 
 	return sb.String()
+}
+
+func renderLocalMachine(info scanner.LocalDiscoveryInfo) string {
+	if info.Hostname == "" && info.Interface == "" {
+		return ""
+	}
+
+	name := info.Hostname
+	if name == "" {
+		name = "Local machine"
+	}
+
+	var lines []string
+	lines = append(lines, sectionStyle.Render("Local Machine"))
+
+	header := hostStyle.Render(name)
+	if info.Interface != "" {
+		header = fmt.Sprintf("%s  %s", header, dimStyle.Render("("+info.Interface+")"))
+	}
+	lines = append(lines, header)
+
+	if info.InSubnet {
+		ip := info.IP
+		if ip == "" {
+			ip = "—"
+		}
+		mac := info.MAC
+		if mac == "" {
+			mac = "—"
+		}
+		lines = append(lines, fmt.Sprintf("IP: %s   MAC: %s", ip, mac))
+		if !info.InScanRange {
+			lines = append(lines, dimStyle.Render("Discovery interface is active, but its IP is outside the requested scan range."))
+		}
+		return strings.Join(lines, "\n")
+	}
+
+	lines = append(lines, noteStyle.Render("Scanning from a different subnet; local IP/MAC details are hidden."))
+	return strings.Join(lines, "\n")
+}
+
+func filterVisibleHosts(hosts []*models.Host, local scanner.LocalDiscoveryInfo) []*models.Host {
+	if !local.InScanRange || local.IP == "" {
+		return hosts
+	}
+
+	visible := make([]*models.Host, 0, len(hosts))
+	for _, host := range hosts {
+		if host == nil || host.Snapshot().IP == local.IP {
+			continue
+		}
+		visible = append(visible, host)
+	}
+	return visible
 }
 
 func formatPorts(ports []models.Port) string {
