@@ -17,10 +17,20 @@ import (
 // --- Styles ---
 
 var (
+	progressStyle = lipgloss.NewStyle().
+			Padding(1, 3).
+			Foreground(lipgloss.Color("#d9fbff"))
+
+	localMachineStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#d9fbff00")).
+				Padding(1, 3).
+				Background(lipgloss.Color("#0c161b"))
+
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#7DF9FF")).
-			MarginBottom(1)
+			Foreground(lipgloss.Color("#40e6ef")).
+			MarginBottom(1).
+			MarginTop(1)
 
 	sectionStyle = lipgloss.NewStyle().
 			Bold(true).
@@ -42,8 +52,14 @@ var (
 	vendorStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#CC99FF"))
 
-	barFill  = lipgloss.NewStyle().Foreground(lipgloss.Color("#7DF9FF"))
-	barEmpty = lipgloss.NewStyle().Foreground(lipgloss.Color("#333333"))
+	barFill = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#40e6ef"))
+
+	barEmpty = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#333333"))
+
+	progressMetaStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#6d7478"))
 )
 
 // --- Messages ---
@@ -70,6 +86,7 @@ type Model struct {
 	finished  bool
 	result    *models.ScanResult
 	err       error
+	width     int
 }
 
 func New(opts models.ScanOptions) Model {
@@ -155,6 +172,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		return m, nil
+
 	case hostFoundMsg:
 		if !m.finished {
 			ip := msg.host.Snapshot().IP
@@ -205,13 +226,13 @@ func (m Model) View() string {
 
 	var sb strings.Builder
 
-	sb.WriteString(titleStyle.Render("⬡ SubnetLens Scanner"))
+	sb.WriteString(titleStyle.Render("✧ SubnetLens ✧"))
 	sb.WriteString("\n")
-	sb.WriteString(renderProgress(m.done, m.total))
+	sb.WriteString(centerBlock(renderProgress(m.done, m.total), lipgloss.Width(sb.String())))
 	sb.WriteString("\n\n")
 
 	if localBlock := renderLocalMachine(m.local); localBlock != "" {
-		sb.WriteString(localBlock)
+		sb.WriteString(centerBlock(localBlock, lipgloss.Width(sb.String())))
 		sb.WriteString("\n\n")
 	}
 
@@ -297,22 +318,33 @@ func renderLocalMachine(info scanner.LocalDiscoveryInfo) string {
 
 	if info.InSubnet {
 		ip := info.IP
+
 		if ip == "" {
 			ip = "—"
 		}
+
 		mac := info.MAC
 		if mac == "" {
 			mac = "—"
 		}
+
 		lines = append(lines, fmt.Sprintf("IP: %s   MAC: %s", ip, mac))
 		if !info.InScanRange {
 			lines = append(lines, dimStyle.Render("Discovery interface is active, but its IP is outside the requested scan range."))
 		}
-		return strings.Join(lines, "\n")
+
+		return localMachineStyle.Render(strings.Join(lines, "\n"))
 	}
 
 	lines = append(lines, noteStyle.Render("Scanning from a different subnet; local IP/MAC details are hidden."))
-	return strings.Join(lines, "\n")
+	return localMachineStyle.Render(strings.Join(lines, "\n"))
+}
+
+func centerBlock(block string, screenWidth int) string {
+	if screenWidth <= 0 {
+		return block
+	}
+	return lipgloss.PlaceHorizontal(screenWidth, lipgloss.Center, block)
 }
 
 func filterVisibleHosts(hosts []*models.Host, local scanner.LocalDiscoveryInfo) []*models.Host {
@@ -347,10 +379,18 @@ func renderProgress(done, total int) string {
 		total = 1
 	}
 	filled := done * width / total
-	bar := barFill.Render(strings.Repeat("█", filled)) +
-		barEmpty.Render(strings.Repeat("░", width-filled))
+	bar := lipgloss.JoinHorizontal(
+		lipgloss.Top,
+		barFill.Render(strings.Repeat("█", filled)),
+		barEmpty.Render(strings.Repeat("░", width-filled)),
+	)
 	pct := done * 100 / total
-	return fmt.Sprintf("Scanning hosts  %s  %3d%%  (%d/%d)", bar, pct, done, total)
+	content := strings.Join([]string{
+		sectionStyle.Render("Scanning Hosts"),
+		bar,
+		progressMetaStyle.Render(fmt.Sprintf("%3d%%  (%d/%d)", pct, done, total)),
+	}, "\n")
+	return progressStyle.Render(content)
 }
 
 // Run starts the TUI program.
