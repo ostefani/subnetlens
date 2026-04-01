@@ -17,7 +17,7 @@ permissions:
 
 jobs:
     build:
-        name: Build & Vet
+        name: Build, Vet & Test
         runs-on: ubuntu-latest
 
         steps:
@@ -34,6 +34,12 @@ jobs:
 
             - name: Vet
               run: go vet ./...
+
+            - name: Test
+              run: go test ./...
+
+            - name: Race test
+              run: go test -race ./...
 
             - name: Build
               run: go build -v ./...
