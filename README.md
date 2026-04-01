@@ -1,4 +1,4 @@
-# ✧ Subnetlens ✧
+# ✧ SubnetLens ✧
 
 ![Go Version](https://img.shields.io/badge/go-1.26-blue)
 ![CLI](https://img.shields.io/badge/type-CLI-informational)

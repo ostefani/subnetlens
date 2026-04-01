@@ -12,11 +12,6 @@ import (
 	"github.com/ostefani/subnetlens/models"
 )
 
-type arpPending struct {
-	mu    sync.Mutex
-	hosts map[string]*models.Host
-}
-
 type targetSpec struct {
 	seq      iter.Seq[string]
 	total    int
@@ -30,11 +25,14 @@ func DiscoverHosts(
 	cache *mdnsCache,
 	icmpScanner *ICMPScanner,
 	arpCache *ARPCache,
-) <-chan *models.Host {
-	out := make(chan *models.Host, 256)
+) <-chan HostEvent {
+	out := make(chan HostEvent, 256)
+	registry := &HostRegistry{updates: make(chan hostUpdate, 512)}
+
+	go registry.run(ctx, out)
 
 	go func() {
-		defer close(out)
+		defer close(registry.updates)
 
 		targets, err := expandTargets(opts.Subnet)
 		if err != nil {
@@ -50,29 +48,14 @@ func DiscoverHosts(
 		var waitGroup sync.WaitGroup
 		done := 0
 		var mu sync.Mutex
-		var seen sync.Map
 		scanDone := make(chan struct{})
 		var arpWG sync.WaitGroup
-		pending := newARPPending()
-
-		emit := func(h *models.Host) {
-			if h == nil || ctx.Err() != nil {
-				return
-			}
-			if h.Hostname == "" {
-				h.Hostname = h.IP
-			}
-			if _, loaded := seen.LoadOrStore(h.IP, struct{}{}); loaded {
-				return
-			}
-			out <- h
-		}
 
 		if arpCache != nil && targets.contains != nil {
 			arpWG.Add(1)
 			go func() {
 				defer arpWG.Done()
-				watchARP(ctx, arpCache, targets.contains, &seen, pending, scanDone)
+				watchARP(ctx, arpCache, targets.contains, registry.updates, scanDone)
 			}()
 		}
 
@@ -90,7 +73,7 @@ func DiscoverHosts(
 				defer waitGroup.Done()
 				defer func() { <-sem }()
 
-				host := probeHostSmart(ctx, ip, opts, cache, icmpScanner, arpCache)
+				updates := probeHostSmart(ctx, ip, opts, cache, icmpScanner, arpCache)
 
 				mu.Lock()
 				done++
@@ -99,7 +82,11 @@ func DiscoverHosts(
 				}
 				mu.Unlock()
 
-				emit(host)
+				for _, update := range updates {
+					if !sendHostUpdate(ctx, registry.updates, update) {
+						return
+					}
+				}
 			}(ip)
 		}
 
@@ -107,11 +94,6 @@ func DiscoverHosts(
 
 		close(scanDone)
 		arpWG.Wait()
-		pendingHosts := pending.drain()
-
-		for _, h := range pendingHosts {
-			emit(h)
-		}
 
 		debugLog("discovery", "sweep complete")
 	}()
@@ -123,50 +105,50 @@ func triggerMulticastDiscovery(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
 	}
-    mcastAddr, addrError := net.ResolveUDPAddr("udp4", "224.0.0.251:5353")
+	mcastAddr, addrError := net.ResolveUDPAddr("udp4", "224.0.0.251:5353")
 	if addrError != nil {
 		debugLog("mdns", "failed to resolve multicast address: %v", addrError)
 		return
 	}
-    
-    query := []byte{
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x09, 0x5f, 0x73, 0x65,
-        0x72, 0x76, 0x69, 0x63, 0x65, 0x73, 0x07, 0x5f,
-        0x64, 0x6e, 0x73, 0x2d, 0x73, 0x64, 0x04, 0x5f,
-        0x75, 0x64, 0x70, 0x05, 0x6c, 0x6f, 0x63, 0x61,
-        0x6c, 0x00, 0x00, 0x0c, 0x00, 0x01,
-    }
+
+	query := []byte{
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x09, 0x5f, 0x73, 0x65,
+		0x72, 0x76, 0x69, 0x63, 0x65, 0x73, 0x07, 0x5f,
+		0x64, 0x6e, 0x73, 0x2d, 0x73, 0x64, 0x04, 0x5f,
+		0x75, 0x64, 0x70, 0x05, 0x6c, 0x6f, 0x63, 0x61,
+		0x6c, 0x00, 0x00, 0x0c, 0x00, 0x01,
+	}
 
 	ifaces, _ := net.Interfaces()
-    for _, iface := range ifaces {
-        if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagMulticast == 0 {
-            continue
-        }
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagMulticast == 0 {
+			continue
+		}
 
-        addrs, _ := iface.Addrs()
-        for _, addr := range addrs {
-            ipnet, ok := addr.(*net.IPNet)
-            if !ok || ipnet.IP.To4() == nil || ipnet.IP.IsLoopback() {
-                continue
-            }
+		addrs, _ := iface.Addrs()
+		for _, addr := range addrs {
+			ipnet, ok := addr.(*net.IPNet)
+			if !ok || ipnet.IP.To4() == nil || ipnet.IP.IsLoopback() {
+				continue
+			}
 
-            localAddr := &net.UDPAddr{IP: ipnet.IP.To4(), Port: 0}
-            conn, err := net.DialUDP("udp4", localAddr, mcastAddr)
-            if err != nil {
-                continue
-            }
+			localAddr := &net.UDPAddr{IP: ipnet.IP.To4(), Port: 0}
+			conn, err := net.DialUDP("udp4", localAddr, mcastAddr)
+			if err != nil {
+				continue
+			}
 
 			if ctx.Err() != nil {
 				conn.Close()
 				return
 			}
 
-            conn.Write(query)
-            conn.Close()
-            break
-        }
-    }
+			conn.Write(query)
+			conn.Close()
+			break
+		}
+	}
 }
 
 func probeHostSmart(
@@ -176,56 +158,56 @@ func probeHostSmart(
 	cache *mdnsCache,
 	icmpScanner *ICMPScanner,
 	arpCache *ARPCache,
-) *models.Host {
-	host := &models.Host{IP: ip}
-
+) []hostUpdate {
+	updates := make([]hostUpdate, 0, 3)
 	if arpCache != nil {
 		if mac, ok := arpCache.Lookup(ip); ok {
-			host.MAC = mac
-			host.Vendor = VendorFromMAC(mac)
-			host.SetAlive(true)
-			host.MarkSeen("arp")
+			updates = append(updates, hostUpdate{
+				ip:     ip,
+				mac:    mac,
+				alive:  true,
+				seenBy: "arp",
+			})
 		}
 	}
 
 	resCh := make(chan resolveResult, 1)
 	go func() { resCh <- resolveHostname(ctx, ip, cache) }()
 
-	alive, latency := livenessProbe(ctx, ip, opts, icmpScanner)
+	alive, latency, seenBy := livenessProbe(ctx, ip, opts, icmpScanner)
 	res := <-resCh
 
 	if res.name != "" && res.name != ip {
-		host.Hostname = res.name
-		host.MarkSeen("mdns")
-		if res.latency > 0 {
-			host.SetAlive(true)
-		}
+		updates = append(updates, hostUpdate{
+			ip:     ip,
+			name:   res.name,
+			alive:  res.latency > 0,
+			seenBy: "mdns",
+		})
 	}
 
 	if alive {
-		host.SetAlive(true)
-		host.Latency = latency
-		host.MarkSeen("probe")
+		updates = append(updates, hostUpdate{
+			ip:      ip,
+			alive:   true,
+			latency: latency,
+			seenBy:  seenBy,
+		})
 	}
 
-	if !host.IsAlive() && host.MAC == "" && host.Hostname == "" {
+	if len(updates) == 0 {
 		return nil
 	}
 
-	if host.Hostname == "" {
-		host.Hostname = ip
-	}
-
-	host.MarkSeen("mixed")
-	return host
+	return updates
 }
 
-func livenessProbe(ctx context.Context, ip string, opts models.ScanOptions, icmpScanner *ICMPScanner) (bool, time.Duration) {
+func livenessProbe(ctx context.Context, ip string, opts models.ScanOptions, icmpScanner *ICMPScanner) (bool, time.Duration, string) {
 	if icmpScanner != nil {
 		for i := 0; i < 2; i++ {
 			alive, latency, err := icmpScanner.Probe(ctx, ip, opts.Timeout)
 			if err == nil && alive {
-				return true, latency
+				return true, latency, "icmp"
 			}
 		}
 	}
@@ -237,7 +219,12 @@ func livenessProbe(ctx context.Context, ip string, opts models.ScanOptions, icmp
 		tcp = tcpProbeOpenPort
 	}
 
-	return tcp(ctx, ip, opts.Timeout)
+	alive, latency := tcp(ctx, ip, opts.Timeout)
+	if !alive {
+		return false, 0, ""
+	}
+
+	return true, latency, "tcp"
 }
 
 func expandTargets(target string) (targetSpec, error) {
@@ -388,56 +375,14 @@ func rangeSpec(start, end uint32, skipEndpoints bool) (targetSpec, error) {
 	}, nil
 }
 
-func newARPPending() *arpPending {
-	return &arpPending{
-		hosts: make(map[string]*models.Host),
-	}
-}
-
-func (p *arpPending) add(ip, mac string) bool {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if existing, ok := p.hosts[ip]; ok {
-		if existing.MAC == "" && mac != "" {
-			existing.MAC = mac
-			existing.Vendor = VendorFromMAC(mac)
-		}
-		return false
-	}
-
-	h := &models.Host{IP: ip, MAC: mac, Vendor: VendorFromMAC(mac)}
-	h.SetAlive(true)
-	h.MarkSeen("arp")
-	p.hosts[ip] = h
-	return true
-}
-
-func (p *arpPending) drain() []*models.Host {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if len(p.hosts) == 0 {
-		return nil
-	}
-
-	hosts := make([]*models.Host, 0, len(p.hosts))
-	for _, h := range p.hosts {
-		hosts = append(hosts, h)
-	}
-	p.hosts = make(map[string]*models.Host)
-	return hosts
-}
-
 func watchARP(
 	ctx context.Context,
 	arpCache *ARPCache,
 	contains func(string) bool,
-	seen *sync.Map,
-	pending *arpPending,
+	updates chan<- hostUpdate,
 	scanDone <-chan struct{},
 ) {
-	if arpCache == nil || contains == nil || pending == nil {
+	if arpCache == nil || contains == nil || updates == nil {
 		return
 	}
 
@@ -450,48 +395,69 @@ func watchARP(
 	ticker := time.NewTicker(settleInterval)
 	defer ticker.Stop()
 
-	var doneAt time.Time
-	var lastNew time.Time
-	done := false
-	added := 0
+	sent := make(map[string]string)
+	var deadline <-chan time.Time
+	var quietTimer *time.Timer
+	defer func() {
+		if quietTimer != nil {
+			quietTimer.Stop()
+		}
+	}()
 
 	for {
+		var quietC <-chan time.Time
+		if quietTimer != nil {
+			quietC = quietTimer.C
+		}
+
 		select {
 		case <-ctx.Done():
 			return
 		case <-scanDone:
-			if !done {
-				done = true
-				doneAt = time.Now()
-			}
+			scanDone = nil
+			deadline = time.After(settleMax)
+			quietTimer = time.NewTimer(settleQuiet)
+		case <-deadline:
+			return
+		case <-quietC:
+			return
 		case <-ticker.C:
 		}
 
+		newSeen := false
 		table := arpCache.Refresh()
 		for ip, mac := range table {
-			if !contains(ip) {
+			if !contains(ip) || mac == "" || sent[ip] == mac {
 				continue
 			}
-			if _, ok := seen.Load(ip); ok {
-				continue
+			if !sendHostUpdate(ctx, updates, hostUpdate{
+				ip:     ip,
+				mac:    mac,
+				alive:  true,
+				seenBy: "arp",
+			}) {
+				return
 			}
-			if pending.add(ip, mac) {
-				lastNew = time.Now()
-				added++
-			}
+			sent[ip] = mac
+			newSeen = true
 		}
 
-		if done {
-			if time.Since(doneAt) >= settleMax {
-				return
-			}
-			if !lastNew.IsZero() && time.Since(lastNew) >= settleQuiet {
-				return
-			}
-			if lastNew.IsZero() && time.Since(doneAt) >= settleQuiet {
-				return
-			}
+		if newSeen && quietTimer != nil {
+			quietTimer.Reset(settleQuiet)
 		}
+	}
+}
+
+func sendHostUpdate(ctx context.Context, updates chan<- hostUpdate, update hostUpdate) bool {
+	if update.ip == "" {
+		return true
+	}
+
+	select {
+	case <-ctx.Done():
+		return false
+	case updates <- update:
+		return true
 	}
 }
 

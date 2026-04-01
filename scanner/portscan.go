@@ -13,12 +13,13 @@ import (
 )
 
 func ScanPorts(ctx context.Context, host *models.Host, opts models.ScanOptions, sem chan struct{}) {
+	snapshot := host.Snapshot()
 	ports := opts.Ports
 	if len(ports) == 0 {
 		ports = models.CommonPorts
 	}
 
-	opts.Timeout = adaptiveTimeout(opts.Timeout, host.Latency)
+	opts.Timeout = adaptiveTimeout(opts.Timeout, snapshot.Latency)
 
 	// 1. Create a buffered channel large enough to hold all possible results.
 	resultCh := make(chan models.Port, len(ports))
@@ -37,7 +38,7 @@ Loop:
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			p := probePort(ctx, host.IP, portNum, opts)
+			p := probePort(ctx, snapshot.IP, portNum, opts)
 
 			if p.State == models.PortOpen {
 				// 2. Lock-free send to the buffered channel
@@ -52,14 +53,14 @@ Loop:
 	// 4. Close the channel so we can range over it safely
 	close(resultCh)
 
-	// 5. Drain the channel into a slice. 
+	// 5. Drain the channel into a slice.
 	results := make([]models.Port, 0, len(resultCh))
 	for p := range resultCh {
 		results = append(results, p)
 	}
 
 	sortPorts(results)
-	host.OpenPorts = results
+	host.SetOpenPorts(results)
 
 }
 
@@ -110,12 +111,12 @@ var tlsPorts = map[int]bool{
 var httpProbe = []byte("HEAD / HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n")
 
 var clientProbes = map[int][]byte{
-    80:   httpProbe,
-    8080: httpProbe,
-    8888: httpProbe,
-    9200: httpProbe,
-    6379: []byte("PING\r\n"),
-    5432: {
+	80:   httpProbe,
+	8080: httpProbe,
+	8888: httpProbe,
+	9200: httpProbe,
+	6379: []byte("PING\r\n"),
+	5432: {
 		0x00, 0x00, 0x00, 0x22,
 		0x00, 0x03, 0x00, 0x00,
 		'u', 's', 'e', 'r', 0x00,
@@ -154,6 +155,7 @@ func grabBanner(conn net.Conn, portNum int, addr string) string {
 // internal CAs not trusted by the host OS.
 //
 // The returned banner form:
+//
 //	TLS: CN=example.com SANs=[www.example.com api.example.com] Org=Acme Corp
 func grabTLSBanner(conn net.Conn, ip, addr string) string {
 	tlsConn := tls.Client(conn, &tls.Config{
