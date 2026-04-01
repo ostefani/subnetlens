@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/lipgloss/table"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/ostefani/subnetlens/models"
 	"github.com/ostefani/subnetlens/scanner"
@@ -119,7 +120,13 @@ const (
 	defaultWindowHeight = 32
 	hostTableMinHeight  = 5
 	hostTableFrameLines = 4
-	layoutMarginLeft    = 2
+	tableRightSlack     = 1
+	ipColumnWidth       = 15
+	hostnameColumnWidth = 15
+	vendorColumnWidth   = 22
+	deviceColumnWidth   = 18
+	osColumnWidth       = 5
+	macColumnWidth = 20
 )
 
 // --- Messages ---
@@ -376,7 +383,7 @@ func (m *Model) mergeHosts(hosts []*models.Host) {
 }
 
 func (m Model) contentWidth() int {
-	width := m.windowWidth - layoutMarginLeft
+	width := m.windowWidth - layoutStyle.GetHorizontalFrameSize() - tableRightSlack
 	if width < 1 {
 		return 1
 	}
@@ -601,19 +608,36 @@ func renderHostTable(hosts []*models.Host, width int) string {
 }
 
 func hostTableStyle(row, col int) lipgloss.Style {
+	style := tableCellStyle
+
 	switch {
 	case row == table.HeaderRow:
-		return tableHeaderStyle
+		style = tableHeaderStyle
 	case col == 0:
-		return tableHostStyle
+		style = tableHostStyle
 	case col == 3:
-		return tableVendorStyle
+		style = tableVendorStyle
 	case col == 4:
-		return tableOSStyle
+		style = tableOSStyle
 	case col == 5:
-		return tableDeviceStyle
+		style = tableDeviceStyle
+	}
+
+	switch col {
+	case 0:
+		return style.Width(ipColumnWidth)
+	case 1:
+		return style.Width(hostnameColumnWidth)
+	case 2:
+		return style.Width(macColumnWidth)
+	case 3:
+		return style.Width(vendorColumnWidth)
+	case 4:
+		return style.Width(osColumnWidth)
+	case 5:
+		return style.Width(deviceColumnWidth)
 	default:
-		return tableCellStyle
+		return style
 	}
 }
 
@@ -636,14 +660,21 @@ func renderHostTableStatus(total, start, end int) string {
 
 func hostTableRow(snapshot models.HostSnapshot) []string {
 	return []string{
-		snapshot.IP,
-		snapshot.Hostname,
+		truncateCell(snapshot.IP, ipColumnWidth-2),
+		truncateCell(snapshot.Hostname, hostnameColumnWidth-2),
 		orDefault(snapshot.MAC, "—"),
-		orDefault(snapshot.Vendor, "—"),
+		truncateCell(orDefault(snapshot.Vendor, "—"), vendorColumnWidth-2),
 		hostOSLabel(snapshot.OS),
-		orDefault(snapshot.Device, "—"),
+		truncateCell(orDefault(snapshot.Device, "—"), deviceColumnWidth-2),
 		formatPorts(snapshot.OpenPorts),
 	}
+}
+
+func truncateCell(value string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	return ansi.Truncate(value, width, "…")
 }
 
 func formatPorts(ports []models.Port) string {
