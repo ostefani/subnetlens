@@ -153,10 +153,12 @@ type Model struct {
 	hostCh       chan *models.Host
 	progCh       chan [2]int
 	hosts        []*models.Host
+	visibleCache []*models.Host
 	hostIndex    map[string]int
 	done         int
 	total        int
 	finished     bool
+	aliveHosts   int
 	result       *models.ScanResult
 	err          error
 	windowWidth  int
@@ -300,6 +302,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case scanDoneMsg:
 		m.finished = true
 		m.result = msg.result
+		m.aliveHosts = len(msg.result.AliveHosts())
 		m.mergeHosts(msg.result.Hosts)
 		m.clampTableOffset()
 		switch {
@@ -324,11 +327,12 @@ func (m Model) View() string {
 		return m.renderLayout(fmt.Sprintf("\nError: %v\n", m.err))
 	}
 
+	layout := m.viewLayout()
 	visibleHosts := m.visibleHosts()
-	sections := []string{m.renderHeader()}
+	sections := []string{layout.header}
 
 	if len(visibleHosts) > 0 {
-		viewport := m.hostTableViewport(visibleHosts)
+		viewport := m.hostTableViewportWithLayout(visibleHosts, layout)
 		if viewport.rows > 0 {
 			pageHosts := visibleHosts[viewport.start:viewport.end]
 			tableBlock := renderHostTable(pageHosts, viewport.width)
@@ -342,8 +346,8 @@ func (m Model) View() string {
 		sections = append(sections, dimStyle.Render("  Searching for hosts..."))
 	}
 
-	if summary := m.renderSummary(); summary != "" {
-		sections = append(sections, summary)
+	if layout.summary != "" {
+		sections = append(sections, layout.summary)
 	}
 
 	return m.renderLayout(joinSections(sections...))
@@ -364,42 +368,83 @@ func (m Model) renderSummary() string {
 
 	return strings.Join([]string{
 		fmt.Sprintf("  Scan complete. Found %d host(s) in %s",
-			len(m.result.AliveHosts()),
+			m.summaryAliveHosts(),
 			m.result.Duration().Round(0)),
 		dimStyle.Render("  Press 'q' or 'ctrl+c' to exit."),
 	}, "\n")
 }
 
+func (m Model) summaryAliveHosts() int {
+	if m.aliveHosts > 0 || m.result == nil {
+		return m.aliveHosts
+	}
+
+	aliveHosts := 0
+	for _, host := range m.result.Hosts {
+		if host != nil && host.IsAlive() {
+			aliveHosts++
+		}
+	}
+
+	return aliveHosts
+}
+
 func (m Model) visibleHosts() []*models.Host {
+	if m.visibleCache != nil || len(m.hosts) == 0 {
+		return m.visibleCache
+	}
 	return filterVisibleHosts(m.hosts, m.local)
 }
 
 func (m *Model) upsertHost(host *models.Host) {
-	if host == nil {
+	if !m.upsertHostNoRefresh(host) {
 		return
 	}
+	m.rebuildVisibleHosts()
+	m.clampTableOffset()
+}
 
-	ip := host.Snapshot().IP
+func (m *Model) upsertHostNoRefresh(host *models.Host) bool {
+	if host == nil {
+		return false
+	}
+
+	ip := host.IP()
 	if ip == "" {
-		return
+		return false
 	}
 
 	if idx, exists := m.hostIndex[ip]; exists {
 		// Keep the streamed order stable while refreshing the pointer in case
 		// the final result slice carries the authoritative host instance.
+		if m.hosts[idx] == host {
+			return false
+		}
 		m.hosts[idx] = host
-		return
+		return true
 	}
 
 	m.hostIndex[ip] = len(m.hosts)
 	m.hosts = append(m.hosts, host)
-	m.clampTableOffset()
+	return true
 }
 
 func (m *Model) mergeHosts(hosts []*models.Host) {
+	changed := false
 	for _, host := range hosts {
-		m.upsertHost(host)
+		if m.upsertHostNoRefresh(host) {
+			changed = true
+		}
 	}
+	if !changed {
+		return
+	}
+	m.rebuildVisibleHosts()
+	m.clampTableOffset()
+}
+
+func (m *Model) rebuildVisibleHosts() {
+	m.visibleCache = filterVisibleHosts(m.hosts, m.local)
 }
 
 func (m Model) contentWidth() int {
@@ -451,11 +496,12 @@ func (m *Model) clampTableOffset() {
 }
 
 func (m Model) maxTableOffset() int {
-	viewport := m.hostTableViewport(m.visibleHosts())
+	visibleHosts := m.visibleHosts()
+	viewport := m.hostTableViewport(visibleHosts)
 	if viewport.rows == 0 {
 		return 0
 	}
-	maxOffset := len(m.visibleHosts()) - viewport.rows
+	maxOffset := len(visibleHosts) - viewport.rows
 	if maxOffset < 0 {
 		return 0
 	}
@@ -477,20 +523,43 @@ type tableViewport struct {
 	end   int
 }
 
+type viewLayout struct {
+	header        string
+	headerHeight  int
+	summary       string
+	summaryHeight int
+}
+
+func (m Model) viewLayout() viewLayout {
+	header := m.renderHeader()
+	summary := m.renderSummary()
+
+	return viewLayout{
+		header:        header,
+		headerHeight:  m.contentHeight(header),
+		summary:       summary,
+		summaryHeight: m.contentHeight(summary),
+	}
+}
+
 func (m Model) hostTableViewport(hosts []*models.Host) tableViewport {
+	return m.hostTableViewportWithLayout(hosts, m.viewLayout())
+}
+
+func (m Model) hostTableViewportWithLayout(hosts []*models.Host, layout viewLayout) tableViewport {
 	if len(hosts) == 0 {
 		return tableViewport{width: m.contentWidth()}
 	}
 
-	availableHeight := m.windowHeight - m.contentHeight(m.renderHeader()) - 1
+	availableHeight := m.windowHeight - layout.headerHeight - 1
 	if availableHeight < 0 {
 		availableHeight = 0
 	}
 
 	// The table is rendered as its own section, followed by a one-line status.
 	availableHeight--
-	if summary := m.renderSummary(); summary != "" {
-		availableHeight -= m.contentHeight(summary) + 1
+	if layout.summary != "" {
+		availableHeight -= layout.summaryHeight + 1
 	}
 
 	if availableHeight < hostTableMinHeight {
@@ -605,7 +674,7 @@ func filterVisibleHosts(hosts []*models.Host, local scanner.LocalDiscoveryInfo) 
 
 	visible := make([]*models.Host, 0, len(hosts))
 	for _, host := range hosts {
-		if host == nil || host.Snapshot().IP == local.IP {
+		if host == nil || host.IP() == local.IP {
 			continue
 		}
 		visible = append(visible, host)

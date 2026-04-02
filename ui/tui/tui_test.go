@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ostefani/subnetlens/models"
+	"github.com/ostefani/subnetlens/scanner"
 )
 
 func TestHostTableViewportClampsOffsetToVisibleRows(t *testing.T) {
@@ -87,6 +88,48 @@ func TestMergeHostsPreservesStreamOrderAndAddsMissingFinalHosts(t *testing.T) {
 	}
 	if m.hosts[0] != finalA {
 		t.Fatal("expected merge to refresh the existing pointer for matching IPs")
+	}
+}
+
+func TestVisibleHostsFiltersLocalHost(t *testing.T) {
+	m := Model{
+		local: scanner.LocalDiscoveryInfo{
+			InScanRange: true,
+			IP:          "192.168.1.10",
+		},
+		hostIndex: make(map[string]int),
+	}
+
+	m.upsertHost(models.NewHost("192.168.1.10"))
+	remote := models.NewHost("192.168.1.20")
+	m.upsertHost(remote)
+
+	visibleHosts := m.visibleHosts()
+	if len(visibleHosts) != 1 {
+		t.Fatalf("expected only the remote host to be visible, got %d hosts", len(visibleHosts))
+	}
+	if visibleHosts[0] != remote {
+		t.Fatal("expected visible hosts to retain the remote host pointer")
+	}
+}
+
+func TestVisibleHostsRefreshesPointerReplacement(t *testing.T) {
+	m := Model{
+		hostIndex: make(map[string]int),
+	}
+
+	original := models.NewHost("192.168.1.20")
+	updated := models.NewHost("192.168.1.20")
+
+	m.upsertHost(original)
+	m.upsertHost(updated)
+
+	visibleHosts := m.visibleHosts()
+	if len(visibleHosts) != 1 {
+		t.Fatalf("expected one visible host, got %d", len(visibleHosts))
+	}
+	if visibleHosts[0] != updated {
+		t.Fatal("expected the visible host cache to refresh the stored pointer")
 	}
 }
 
