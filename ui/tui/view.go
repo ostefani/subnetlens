@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/lipgloss/table"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/ostefani/subnetlens/internal/textutil"
 	"github.com/ostefani/subnetlens/models"
 	"github.com/ostefani/subnetlens/scanner"
 )
@@ -88,7 +89,7 @@ func (m Model) renderLayout(content string) string {
 }
 
 func (m Model) contentWidth() int {
-	return max(m.windowWidth - layoutStyle.GetHorizontalFrameSize(), 1)
+	return max(m.windowWidth-layoutStyle.GetHorizontalFrameSize(), 1)
 }
 
 func (m Model) contentHeight(content string) int {
@@ -125,10 +126,6 @@ func (m Model) hostTableViewportWithLayout(hosts []*models.Host, layout viewLayo
 		availableHeight -= layout.summaryHeight + 1
 	}
 
-	if layout.summary != "" {
-		availableHeight -= layout.summaryHeight + 1
-	}
-
 	rows := availableHeight - hostTableFrameLines
 	if rows < 1 || availableHeight < hostTableMinHeight {
 		return empty
@@ -138,7 +135,7 @@ func (m Model) hostTableViewportWithLayout(hosts []*models.Host, layout viewLayo
 	start := clamp(m.tableOffset, 0, maxStart)
 	end := min(start+rows, len(hosts))
 
-	return tableViewport{ width: m.contentWidth(), rows: rows, start: start, end: end}
+	return tableViewport{width: m.contentWidth(), rows: rows, start: start, end: end}
 }
 
 func (m *Model) invalidateTableCache() {
@@ -208,17 +205,17 @@ func (m Model) renderHostTableSection(visibleHosts []*models.Host, viewport tabl
 // --- Primitive renderers ---
 
 func renderProgress(done, total int) string {
-    total = max(total, 1)
+	total = max(total, 1)
 
-    pct := done * 100 / total
-    return lipgloss.JoinVertical(lipgloss.Left,
-        renderProgressBar(done, total),
-        progressMetaStyle.Render(fmt.Sprintf("Scanning Hosts: (%d/%d)  %3d%%", done, total, pct)),
-    )
+	pct := done * 100 / total
+	return lipgloss.JoinVertical(lipgloss.Left,
+		lipgloss.NewStyle().PaddingLeft(1).Render(renderProgressBar(done, total)),
+		progressMetaStyle.Render(fmt.Sprintf("Scanning Hosts: (%d/%d)  %3d%%", done, total, pct)),
+	)
 }
 
 func renderProgressBar(done, total int) string {
-	filled := clamp(done * progressBarWidth / total, 0, progressBarWidth)
+	filled := clamp(done*progressBarWidth/total, 0, progressBarWidth)
 
 	return lipgloss.JoinHorizontal(
 		lipgloss.Top,
@@ -236,13 +233,15 @@ func renderLocalMachine(info scanner.LocalDiscoveryInfo) string {
 	if name == "" {
 		name = "Local machine"
 	}
+	name = textutil.SanitizeInline(name)
+	ifaceName := textutil.SanitizeInline(info.Interface)
 
 	lines := []string{
 		localMachineHeaderStyle.Render("Local Machine:"),
 		localMachineContentStyle.Render("Hostname: " + name),
 	}
-	if info.Interface != "" {
-		lines = append(lines, localMachineContentStyle.Render("Interface: "+info.Interface))
+	if ifaceName != "" {
+		lines = append(lines, localMachineContentStyle.Render("Interface: "+ifaceName))
 	}
 
 	body := noteStyle.Render("Scanning from a different subnet; local IP/MAC details are hidden.")
@@ -399,7 +398,7 @@ func formatPorts(ports []models.Port) string {
 	if len(ports) == 0 {
 		return "—"
 	}
-	var pStrings []string
+	pStrings := make([]string, 0, len(ports))
 	for _, p := range ports {
 		pStrings = append(pStrings, fmt.Sprintf("%d/%s", p.Number, p.Service))
 	}
@@ -412,7 +411,6 @@ func truncateCell(value string, width int) string {
 	}
 	return ansi.Truncate(value, width, "…")
 }
-
 
 func orDefault(value, fallback string) string {
 	if value == "" {
@@ -457,12 +455,16 @@ func clamp(v, lo, hi int) int {
 }
 
 func (m Model) summaryAliveHosts() int {
-	if m.aliveHosts > 0 || m.result == nil {
+	if m.aliveCountOK || m.result == nil {
 		return m.aliveHosts
 	}
 
+	return countAliveHosts(m.result.Hosts)
+}
+
+func countAliveHosts(hosts []*models.Host) int {
 	aliveHosts := 0
-	for _, host := range m.result.Hosts {
+	for _, host := range hosts {
 		if host != nil && host.IsAlive() {
 			aliveHosts++
 		}

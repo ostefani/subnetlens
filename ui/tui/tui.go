@@ -40,6 +40,7 @@ type Model struct {
 	total        int
 	finished     bool
 	aliveHosts   int
+	aliveCountOK bool
 	result       *models.ScanResult
 	err          error
 	windowWidth  int
@@ -113,7 +114,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case scanDoneMsg:
 		m.finished = true
 		m.result = msg.result
-		m.aliveHosts = len(msg.result.AliveHosts())
+		m.aliveHosts = countAliveHosts(msg.result.Hosts)
+		m.aliveCountOK = true
 		m.mergeHosts(msg.result.Hosts)
 		m.clampTableOffset()
 		switch {

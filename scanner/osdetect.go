@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ostefani/subnetlens/internal/textutil"
 	"github.com/ostefani/subnetlens/models"
 )
 
@@ -188,7 +189,7 @@ func fetchSSHBanner(ip string, timeout time.Duration) string {
 		return ""
 	}
 
-	return sanitize(string(buf[:bytesRead]))
+	return textutil.SanitizeInline(string(buf[:bytesRead]))
 }
 
 func parseSSHBanner(banner string) string {

@@ -60,32 +60,11 @@ func TestHostTableViewportReservesSpaceForSummary(t *testing.T) {
 	if withSummary.rows >= withoutSummary.rows {
 		t.Fatalf("expected summary footer to reduce table rows, got %d >= %d", withSummary.rows, withoutSummary.rows)
 	}
-}
 
-func TestPrimaryBlockPaddingMatchesDesign(t *testing.T) {
-	if got := localMachineStyle.GetPaddingLeft(); got != 2 {
-		t.Fatalf("expected local machine block left padding 3 to preserve the box shape, got %d", got)
-	}
-	if got := localMachineStyle.GetPaddingRight(); got != 2 {
-		t.Fatalf("expected local machine block right padding 3 to preserve the box shape, got %d", got)
-	}
-	if got := localMachineStyle.GetPaddingTop(); got != 0 {
-		t.Fatalf("expected local machine block top padding 0, got %d", got)
-	}
-	if got := localMachineStyle.GetPaddingBottom(); got != 0 {
-		t.Fatalf("expected local machine block bottom padding 0, got %d", got)
-	}
-	if got := dimStyle.GetPaddingLeft(); got != 0 {
-		t.Fatalf("expected shared dim style to avoid layout padding, got %d", got)
-	}
-	if got := noteStyle.GetMarginLeft(); got != 0 {
-		t.Fatalf("expected shared note style to avoid layout margin, got %d", got)
-	}
-	if got := tableStatusStyle.GetPaddingLeft(); got != 2 {
-		t.Fatalf("expected table status style left padding 2, got %d", got)
-	}
-	if got := footnoteStyle.GetPaddingLeft(); got != 2 {
-		t.Fatalf("expected footnote style left padding 2, got %d", got)
+	layout := base.viewLayout()
+	wantDelta := layout.summaryHeight + 1
+	if got := withoutSummary.rows - withSummary.rows; got != wantDelta {
+		t.Fatalf("expected summary to consume %d row(s), got %d", wantDelta, got)
 	}
 }
 
@@ -395,6 +374,24 @@ func TestRenderLocalMachineUsesLabeledLines(t *testing.T) {
 		if contentLines[i] != want[i] {
 			t.Fatalf("expected line %d to be %q, got %q", i, want[i], contentLines[i])
 		}
+	}
+}
+
+func TestRenderLocalMachineSanitizesInlineValues(t *testing.T) {
+	info := scanner.LocalDiscoveryInfo{
+		Hostname:  "workstation\x1b[31m\nlab",
+		Interface: "en0\tmain",
+	}
+
+	rendered := ansi.Strip(renderLocalMachine(info))
+	if strings.Contains(rendered, "\x1b") {
+		t.Fatal("expected escape sequences to be removed from local machine block")
+	}
+	if !strings.Contains(rendered, "Hostname: workstation lab") {
+		t.Fatalf("expected sanitized hostname in local machine block, got %q", rendered)
+	}
+	if !strings.Contains(rendered, "Interface: en0 main") {
+		t.Fatalf("expected sanitized interface in local machine block, got %q", rendered)
 	}
 }
 

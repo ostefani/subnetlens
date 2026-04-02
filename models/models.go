@@ -3,6 +3,8 @@ package models
 import (
 	"sync"
 	"time"
+
+	"github.com/ostefani/subnetlens/internal/textutil"
 )
 
 type Port struct {
@@ -188,6 +190,7 @@ func (h *Host) SetMACIfEmpty(mac string) bool {
 }
 
 func (h *Host) SetHostname(name string) bool {
+	name = textutil.SanitizeInline(name)
 	if h == nil || name == "" {
 		return false
 	}
@@ -203,6 +206,7 @@ func (h *Host) SetHostname(name string) bool {
 }
 
 func (h *Host) SetHostnameIfEmptyOrIP(name string) bool {
+	name = textutil.SanitizeInline(name)
 	if h == nil || name == "" {
 		return false
 	}
@@ -221,6 +225,7 @@ func (h *Host) SetHostnameIfEmptyOrIP(name string) bool {
 }
 
 func (h *Host) SetVendor(vendor string) bool {
+	vendor = textutil.SanitizeInline(vendor)
 	if h == nil || vendor == "" {
 		return false
 	}
@@ -236,6 +241,7 @@ func (h *Host) SetVendor(vendor string) bool {
 }
 
 func (h *Host) SetVendorIfEmpty(vendor string) bool {
+	vendor = textutil.SanitizeInline(vendor)
 	if h == nil || vendor == "" {
 		return false
 	}
@@ -251,6 +257,7 @@ func (h *Host) SetVendorIfEmpty(vendor string) bool {
 }
 
 func (h *Host) SetDevice(device string) bool {
+	device = textutil.SanitizeInline(device)
 	if h == nil || device == "" {
 		return false
 	}
@@ -266,6 +273,7 @@ func (h *Host) SetDevice(device string) bool {
 }
 
 func (h *Host) SetDeviceIfEmpty(device string) bool {
+	device = textutil.SanitizeInline(device)
 	if h == nil || device == "" {
 		return false
 	}
@@ -281,7 +289,8 @@ func (h *Host) SetDeviceIfEmpty(device string) bool {
 }
 
 func (h *Host) SetOS(hostOS string) bool {
-	if h == nil {
+	hostOS = textutil.SanitizeInline(hostOS)
+	if h == nil || hostOS == "" {
 		return false
 	}
 
