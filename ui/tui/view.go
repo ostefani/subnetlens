@@ -88,11 +88,7 @@ func (m Model) renderLayout(content string) string {
 }
 
 func (m Model) contentWidth() int {
-	width := m.windowWidth - layoutStyle.GetHorizontalFrameSize()
-	if width < 1 {
-		return 1
-	}
-	return width
+	return max(m.windowWidth - layoutStyle.GetHorizontalFrameSize(), 1)
 }
 
 func (m Model) contentHeight(content string) int {
@@ -212,28 +208,17 @@ func (m Model) renderHostTableSection(visibleHosts []*models.Host, viewport tabl
 // --- Primitive renderers ---
 
 func renderProgress(done, total int) string {
-	if total <= 0 {
-		total = 1
-	}
+    total = max(total, 1)
 
-	pct := done * 100 / total
-	content := lipgloss.JoinVertical(lipgloss.Left,
-		sectionStyle.Render("Scanning Hosts"),
-		renderProgressBar(done, total),
-		progressMetaStyle.Render(fmt.Sprintf("%3d%%  (%d/%d)", pct, done, total)),
-	)
-
-	return progressStyle.Render(content)
+    pct := done * 100 / total
+    return lipgloss.JoinVertical(lipgloss.Left,
+        renderProgressBar(done, total),
+        progressMetaStyle.Render(fmt.Sprintf("Scanning Hosts: (%d/%d)  %3d%%", done, total, pct)),
+    )
 }
 
 func renderProgressBar(done, total int) string {
-	filled := done * progressBarWidth / total
-	if filled < 0 {
-		filled = 0
-	}
-	if filled > progressBarWidth {
-		filled = progressBarWidth
-	}
+	filled := clamp(done * progressBarWidth / total, 0, progressBarWidth)
 
 	return lipgloss.JoinHorizontal(
 		lipgloss.Top,

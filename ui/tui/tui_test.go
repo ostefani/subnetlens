@@ -63,23 +63,17 @@ func TestHostTableViewportReservesSpaceForSummary(t *testing.T) {
 }
 
 func TestPrimaryBlockPaddingMatchesDesign(t *testing.T) {
-	if got := progressStyle.GetPaddingLeft(); got != 0 {
-		t.Fatalf("expected progress block left padding 0, got %d", got)
-	}
-	if got := progressStyle.GetPaddingRight(); got != 0 {
-		t.Fatalf("expected progress block right padding 0, got %d", got)
-	}
-	if got := localMachineStyle.GetPaddingLeft(); got != 3 {
+	if got := localMachineStyle.GetPaddingLeft(); got != 2 {
 		t.Fatalf("expected local machine block left padding 3 to preserve the box shape, got %d", got)
 	}
-	if got := localMachineStyle.GetPaddingRight(); got != 3 {
+	if got := localMachineStyle.GetPaddingRight(); got != 2 {
 		t.Fatalf("expected local machine block right padding 3 to preserve the box shape, got %d", got)
 	}
-	if got := localMachineStyle.GetPaddingTop(); got != 1 {
-		t.Fatalf("expected local machine block top padding 1, got %d", got)
+	if got := localMachineStyle.GetPaddingTop(); got != 0 {
+		t.Fatalf("expected local machine block top padding 0, got %d", got)
 	}
-	if got := localMachineStyle.GetPaddingBottom(); got != 1 {
-		t.Fatalf("expected local machine block bottom padding 1, got %d", got)
+	if got := localMachineStyle.GetPaddingBottom(); got != 0 {
+		t.Fatalf("expected local machine block bottom padding 0, got %d", got)
 	}
 	if got := dimStyle.GetPaddingLeft(); got != 0 {
 		t.Fatalf("expected shared dim style to avoid layout padding, got %d", got)
@@ -364,28 +358,42 @@ func TestRenderLocalMachineUsesLabeledLines(t *testing.T) {
 	}
 
 	rendered := renderLocalMachine(info)
-	rawLines := strings.Split(rendered, "\n")
+	rawLines := strings.Split(ansi.Strip(rendered), "\n")
 	lines := make([]string, 0, len(rawLines))
 	for _, line := range rawLines {
-		stripped := strings.TrimSpace(ansi.Strip(line))
-		if stripped == "" {
+		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		lines = append(lines, stripped)
+		lines = append(lines, line)
+	}
+	if len(lines) != 7 {
+		t.Fatalf("expected local machine box to render 7 non-empty lines, got %d: %#v", len(lines), lines)
+	}
+	if !strings.HasPrefix(lines[0], "╭") || !strings.HasSuffix(lines[0], "╮") {
+		t.Fatalf("expected top border line, got %q", lines[0])
+	}
+	if !strings.HasPrefix(lines[len(lines)-1], "╰") || !strings.HasSuffix(lines[len(lines)-1], "╯") {
+		t.Fatalf("expected bottom border line, got %q", lines[len(lines)-1])
+	}
+
+	contentLines := make([]string, 0, len(lines)-2)
+	for _, line := range lines[1 : len(lines)-1] {
+		contentLines = append(contentLines, strings.TrimSpace(strings.Trim(line, "│")))
 	}
 
 	want := []string{
 		"Local Machine:",
+		"",
 		"Hostname: workstation",
 		"Interface: en0",
 		"IP: 192.168.1.20   MAC: aa:bb:cc:dd:ee:ff",
 	}
-	if len(lines) != len(want) {
-		t.Fatalf("expected %d non-empty lines, got %d: %#v", len(want), len(lines), lines)
+	if len(contentLines) != len(want) {
+		t.Fatalf("expected %d boxed content lines, got %d: %#v", len(want), len(contentLines), contentLines)
 	}
 	for i := range want {
-		if lines[i] != want[i] {
-			t.Fatalf("expected line %d to be %q, got %q", i, want[i], lines[i])
+		if contentLines[i] != want[i] {
+			t.Fatalf("expected line %d to be %q, got %q", i, want[i], contentLines[i])
 		}
 	}
 }
