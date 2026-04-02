@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/ostefani/subnetlens/internal/textutil"
 	"github.com/ostefani/subnetlens/models"
 )
 
@@ -146,7 +147,7 @@ func grabBanner(conn net.Conn, portNum int, addr string) string {
 	if n == 0 {
 		return ""
 	}
-	return sanitize(string(buf[:n]))
+	return textutil.SanitizeInline(string(buf[:n]))
 }
 
 // grabTLSBanner upgrades conn to TLS and extracts identifying metadata from

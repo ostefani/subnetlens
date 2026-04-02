@@ -7,7 +7,8 @@ import (
 	"os"
 	"strings"
 	"time"
-	"unicode"
+
+	"github.com/ostefani/subnetlens/internal/textutil"
 )
 
 var DebugMode = os.Getenv("SLENS_DEBUG") == "1"
@@ -35,36 +36,27 @@ func deadlineAfter(ms int) time.Time {
 
 func normalizeMDNSName(name string) string {
 	name = strings.TrimSuffix(name, ".local")
-    name = strings.TrimSuffix(name, ".")
-    return name
-}
-
-func sanitize(s string) string {
-	return strings.Map(func(r rune) rune {
-		if unicode.IsPrint(r) || r == '\n' || r == '\r' {
-			return r
-		}
-		return -1
-	}, strings.TrimSpace(s))
+	name = strings.TrimSuffix(name, ".")
+	return textutil.SanitizeInline(name)
 }
 
 func isLocalIP(ip string) bool {
-    ifaces, err := net.Interfaces()
-    if err != nil {
-        return false
-    }
-    for _, iface := range ifaces {
-        addrs, err := iface.Addrs()
-        if err != nil {
-            continue
-        }
-        for _, addr := range addrs {
-            if ipNet, ok := addr.(*net.IPNet); ok && ipNet.IP.String() == ip {
-                return true
-            }
-        }
-    }
-    return false
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return false
+	}
+	for _, iface := range ifaces {
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			if ipNet, ok := addr.(*net.IPNet); ok && ipNet.IP.String() == ip {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func cappedTimeout(ctx context.Context, max time.Duration) time.Duration {

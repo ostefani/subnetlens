@@ -83,10 +83,16 @@ func runScan(cmd *cobra.Command, args []string) error {
 // runPlain outputs results as plain text — useful for scripting / CI pipelines.
 func runPlain(opts models.ScanOptions) error {
 	fmt.Fprintf(os.Stdout, "Scanning %s ...\n\n", opts.Subnet)
+	local := scanner.LocalDiscoveryInfoForTarget(opts.Subnet)
+	printPlainLocalMachine(local)
+
 	var mu sync.Mutex
 	pending := make(map[string]models.HostSnapshot)
 	printed := make(map[string]bool)
 	order := make([]string, 0)
+	if local.InScanRange && local.IP != "" {
+		printed[local.IP] = true
+	}
 
 	eng := &scanner.Engine{
 		Opts: opts,
@@ -172,6 +178,42 @@ func printPlainHost(snapshot models.HostSnapshot) {
 	for _, p := range snapshot.OpenPorts {
 		fmt.Printf("    %-6d %-10s %s\n", p.Number, p.Service, p.Banner)
 	}
+}
+
+func printPlainLocalMachine(info scanner.LocalDiscoveryInfo) {
+	if info.Hostname == "" && info.Interface == "" {
+		return
+	}
+
+	name := info.Hostname
+	if name == "" {
+		name = "Local machine"
+	}
+
+	fmt.Printf("Local machine: %s\n", name)
+	if info.Interface != "" {
+		fmt.Printf("  Interface: %s\n", info.Interface)
+	}
+
+	if info.InSubnet {
+		ip := info.IP
+		if ip == "" {
+			ip = "—"
+		}
+		mac := info.MAC
+		if mac == "" {
+			mac = "—"
+		}
+		fmt.Printf("  IP: %s\n", ip)
+		fmt.Printf("  MAC: %s\n", mac)
+		if !info.InScanRange {
+			fmt.Printf("  Note: discovery interface is active, but its IP is outside the requested scan range.\n")
+		}
+		fmt.Println()
+		return
+	}
+
+	fmt.Printf("  Note: scanning from a different subnet; local IP/MAC details are hidden.\n\n")
 }
 
 func Execute() {
