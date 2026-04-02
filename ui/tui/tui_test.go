@@ -81,6 +81,18 @@ func TestPrimaryBlockPaddingMatchesDesign(t *testing.T) {
 	if got := localMachineStyle.GetPaddingBottom(); got != 1 {
 		t.Fatalf("expected local machine block bottom padding 1, got %d", got)
 	}
+	if got := dimStyle.GetPaddingLeft(); got != 0 {
+		t.Fatalf("expected shared dim style to avoid layout padding, got %d", got)
+	}
+	if got := noteStyle.GetMarginLeft(); got != 0 {
+		t.Fatalf("expected shared note style to avoid layout margin, got %d", got)
+	}
+	if got := tableStatusStyle.GetPaddingLeft(); got != 2 {
+		t.Fatalf("expected table status style left padding 2, got %d", got)
+	}
+	if got := footnoteStyle.GetPaddingLeft(); got != 2 {
+		t.Fatalf("expected footnote style left padding 2, got %d", got)
+	}
 }
 
 func TestRenderSummaryUsesStyledLayout(t *testing.T) {
@@ -330,7 +342,7 @@ func TestRenderRandomizedMACFootnote(t *testing.T) {
 	if footnote == "" {
 		t.Fatal("expected randomized MAC footnote to be rendered")
 	}
-	if got, want := footnote, noteStyle.Render("* For Randomized MAC vendor and device are undetectable."); got != want {
+	if got, want := footnote, footnoteStyle.Render("* For Randomized MAC vendor and device are undetectable."); got != want {
 		t.Fatalf("expected footnote %q, got %q", want, got)
 	}
 	if got := displayVendor(host.Snapshot().Vendor); got != randomizedMACLabel {
@@ -338,6 +350,49 @@ func TestRenderRandomizedMACFootnote(t *testing.T) {
 	}
 	if got := displayDevice(host.Snapshot().Device); got != randomizedMACLabel {
 		t.Fatalf("expected device label %q, got %q", randomizedMACLabel, got)
+	}
+}
+
+func TestRenderLocalMachineUsesLabeledLines(t *testing.T) {
+	info := scanner.LocalDiscoveryInfo{
+		Hostname:    "workstation",
+		Interface:   "en0",
+		IP:          "192.168.1.20",
+		MAC:         "aa:bb:cc:dd:ee:ff",
+		InSubnet:    true,
+		InScanRange: true,
+	}
+
+	rendered := renderLocalMachine(info)
+	rawLines := strings.Split(rendered, "\n")
+	lines := make([]string, 0, len(rawLines))
+	for _, line := range rawLines {
+		stripped := strings.TrimSpace(ansi.Strip(line))
+		if stripped == "" {
+			continue
+		}
+		lines = append(lines, stripped)
+	}
+
+	want := []string{
+		"Local Machine:",
+		"Hostname: workstation",
+		"Interface: en0",
+		"IP: 192.168.1.20   MAC: aa:bb:cc:dd:ee:ff",
+	}
+	if len(lines) != len(want) {
+		t.Fatalf("expected %d non-empty lines, got %d: %#v", len(want), len(lines), lines)
+	}
+	for i := range want {
+		if lines[i] != want[i] {
+			t.Fatalf("expected line %d to be %q, got %q", i, want[i], lines[i])
+		}
+	}
+}
+
+func TestRenderHostTableStatusUsesIndentedStatusStyle(t *testing.T) {
+	if got, want := renderHostTableStatus(3, 0, 3), tableStatusStyle.Render("Hosts visible: 3"); got != want {
+		t.Fatalf("expected status %q, got %q", want, got)
 	}
 }
 
