@@ -99,9 +99,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case hostsFoundMsg:
-		for _, host := range msg.hosts {
-			m.upsertHost(host)
-		}
+		m.applyHostBatch(msg.hosts)
 		return m, waitForHostCmd(m.hostCh)
 
 	case progressMsg:

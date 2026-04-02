@@ -131,8 +131,8 @@ func TestMergeHostsPreservesStreamOrderAndAddsMissingFinalHosts(t *testing.T) {
 	m := Model{
 		hostIndex: make(map[string]int),
 	}
-	m.upsertHost(streamedA)
-	m.upsertHost(streamedB)
+	m.applyHostBatch([]*models.Host{streamedA})
+	m.applyHostBatch([]*models.Host{streamedB})
 
 	m.mergeHosts([]*models.Host{finalA, finalC})
 
@@ -162,9 +162,9 @@ func TestVisibleHostsFiltersLocalHost(t *testing.T) {
 		hostIndex: make(map[string]int),
 	}
 
-	m.upsertHost(models.NewHost("192.168.1.10"))
+	m.applyHostBatch([]*models.Host{models.NewHost("192.168.1.10")})
 	remote := models.NewHost("192.168.1.20")
-	m.upsertHost(remote)
+	m.applyHostBatch([]*models.Host{remote})
 
 	visibleHosts := m.visibleHosts()
 	if len(visibleHosts) != 1 {
@@ -183,8 +183,8 @@ func TestVisibleHostsRefreshesPointerReplacement(t *testing.T) {
 	original := models.NewHost("192.168.1.20")
 	updated := models.NewHost("192.168.1.20")
 
-	m.upsertHost(original)
-	m.upsertHost(updated)
+	m.applyHostBatch([]*models.Host{original})
+	m.applyHostBatch([]*models.Host{updated})
 
 	visibleHosts := m.visibleHosts()
 	if len(visibleHosts) != 1 {
@@ -233,7 +233,7 @@ func TestRenderHostTableSectionRebuildsAfterHostUpdate(t *testing.T) {
 		hostIndex: make(map[string]int),
 	}
 
-	m.upsertHost(models.NewHost("192.168.1.20"))
+	m.applyHostBatch([]*models.Host{models.NewHost("192.168.1.20")})
 
 	rendered := m.renderHostTableSection(m.visibleHosts(), tableViewport{
 		width: 120,

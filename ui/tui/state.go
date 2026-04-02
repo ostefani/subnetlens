@@ -12,13 +12,28 @@ func (m Model) visibleHosts() []*models.Host {
 	return filterVisibleHosts(m.hosts, m.local)
 }
 
-func (m *Model) upsertHost(host *models.Host) {
-	if !m.upsertHostNoRefresh(host) {
-		return
+func (m *Model) applyHostBatch(hosts []*models.Host) {
+	visibleDirty := false
+	tableDirty := false
+
+	for _, host := range hosts {
+		if host == nil || host.IP() == "" {
+			continue
+		}
+
+		tableDirty = true
+		if m.upsertHostNoRefresh(host) {
+			visibleDirty = true
+		}
 	}
-	m.rebuildVisibleHosts()
-	m.invalidateTableCache()
-	m.clampTableOffset()
+
+	if visibleDirty {
+		m.rebuildVisibleHosts()
+		m.clampTableOffset()
+	}
+	if tableDirty {
+		m.invalidateTableCache()
+	}
 }
 
 func (m *Model) scrollTable(delta int) {
@@ -95,18 +110,7 @@ func (m *Model) upsertHostNoRefresh(host *models.Host) bool {
 }
 
 func (m *Model) mergeHosts(hosts []*models.Host) {
-	changed := false
-	for _, host := range hosts {
-		if m.upsertHostNoRefresh(host) {
-			changed = true
-		}
-	}
-	if !changed {
-		return
-	}
-	m.rebuildVisibleHosts()
-	m.invalidateTableCache()
-	m.clampTableOffset()
+	m.applyHostBatch(hosts)
 }
 
 func filterVisibleHosts(hosts []*models.Host, local scanner.LocalDiscoveryInfo) []*models.Host {
