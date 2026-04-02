@@ -90,6 +90,61 @@ func TestMergeHostsPreservesStreamOrderAndAddsMissingFinalHosts(t *testing.T) {
 	}
 }
 
+func TestWaitForHostReturnsBufferedBatch(t *testing.T) {
+	hostCh := make(chan *models.Host, 4)
+	hostA := models.NewHost("192.168.1.10")
+	hostB := models.NewHost("192.168.1.11")
+	hostC := models.NewHost("192.168.1.12")
+
+	hostCh <- hostA
+	hostCh <- hostB
+	hostCh <- hostC
+
+	msg := waitForHost(hostCh)()
+	batchMsg, ok := msg.(hostsFoundMsg)
+	if !ok {
+		t.Fatalf("expected hostsFoundMsg, got %T", msg)
+	}
+	if len(batchMsg.hosts) != 3 {
+		t.Fatalf("expected 3 hosts in batch, got %d", len(batchMsg.hosts))
+	}
+	if batchMsg.hosts[0] != hostA || batchMsg.hosts[1] != hostB || batchMsg.hosts[2] != hostC {
+		t.Fatal("expected batch to preserve channel order")
+	}
+	if got := len(hostCh); got != 0 {
+		t.Fatalf("expected channel to be drained, got %d buffered hosts remaining", got)
+	}
+}
+
+func TestWaitForHostRespectsBatchLimit(t *testing.T) {
+	hostCh := make(chan *models.Host, hostBatchSize+4)
+
+	for i := 0; i < hostBatchSize+4; i++ {
+		hostCh <- models.NewHost("192.168.1." + strconv.Itoa(i+1))
+	}
+
+	msg := waitForHost(hostCh)()
+	batchMsg, ok := msg.(hostsFoundMsg)
+	if !ok {
+		t.Fatalf("expected hostsFoundMsg, got %T", msg)
+	}
+	if len(batchMsg.hosts) != hostBatchSize {
+		t.Fatalf("expected batch size %d, got %d", hostBatchSize, len(batchMsg.hosts))
+	}
+	if got := len(hostCh); got != 4 {
+		t.Fatalf("expected 4 buffered hosts to remain for the next command, got %d", got)
+	}
+}
+
+func TestWaitForHostReturnsNilWhenClosed(t *testing.T) {
+	hostCh := make(chan *models.Host)
+	close(hostCh)
+
+	if msg := waitForHost(hostCh)(); msg != nil {
+		t.Fatalf("expected nil when channel is closed, got %T", msg)
+	}
+}
+
 func TestRenderRandomizedMACFootnote(t *testing.T) {
 	host := models.NewHost("192.168.1.44")
 	host.SetVendor(randomizedMACVendorValue)

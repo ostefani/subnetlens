@@ -114,6 +114,7 @@ var (
 )
 
 const progressBarWidth = 40
+const hostBatchSize = 16
 
 const (
 	defaultWindowWidth  = 120
@@ -136,7 +137,7 @@ const (
 
 // --- Messages ---
 
-type hostFoundMsg struct{ host *models.Host }
+type hostsFoundMsg struct{ hosts []*models.Host }
 type progressMsg struct{ done, total int }
 type scanDoneMsg struct {
 	result     *models.ScanResult
@@ -224,7 +225,21 @@ func waitForHost(hostCh chan *models.Host) tea.Cmd {
 		if !ok {
 			return nil
 		}
-		return hostFoundMsg{host: h}
+
+		batch := []*models.Host{h}
+		for len(batch) < hostBatchSize {
+			select {
+			case nextH, nextOk := <-hostCh:
+				if !nextOk {
+					return hostsFoundMsg{hosts: batch}
+				}
+				batch = append(batch, nextH)
+			default:
+				return hostsFoundMsg{hosts: batch}
+			}
+		}
+
+		return hostsFoundMsg{hosts: batch}
 	}
 }
 
@@ -268,8 +283,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.clampTableOffset()
 		return m, nil
 
-	case hostFoundMsg:
-		m.upsertHost(msg.host)
+	case hostsFoundMsg:
+		for _, host := range msg.hosts {
+			m.upsertHost(host)
+		}
 		return m, waitForHost(m.hostCh)
 
 	case progressMsg:
