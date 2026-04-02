@@ -95,5 +95,5 @@ const (
 	macColumnWidth      = 20
 	vendorColumnWidth   = 22
 	deviceColumnWidth   = 18
-	osColumnWidth       = 5
+	osColumnWidth       = 9
 )
