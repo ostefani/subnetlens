@@ -1,10 +1,8 @@
 package tui
 
 import (
-	"context"
 	"fmt"
 	"strings"
-	"sync/atomic"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -22,13 +20,12 @@ var (
 			MarginLeft(2)
 
 	progressStyle = lipgloss.NewStyle().
-			Padding(1, 3).
 			Foreground(lipgloss.Color("#d9fbff"))
 
 	localMachineStyle = lipgloss.NewStyle().
 				Bold(true).
 				Foreground(lipgloss.Color("#d9fbff")).
-				Padding(1, 3).
+				MarginTop(1).MarginBottom(1).Padding(1, 3).
 				Background(lipgloss.Color("#0c161b"))
 
 	localMachineSectionStyle = lipgloss.NewStyle().
@@ -59,22 +56,26 @@ var (
 			MarginBottom(1).
 			MarginTop(1)
 
+	summaryHeaderStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#080808")).
+				Bold(true).MarginTop(1)
+
 	sectionStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#59bfc4"))
 
 	hostStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#8bf850")).
+			Foreground(lipgloss.Color("#4ec60d")).
 			Bold(true)
 
 	portStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FFD700"))
 
 	dimStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#7e7e7e"))
+			Foreground(lipgloss.Color("#7e7e7e")).PaddingLeft(2)
 
 	noteStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#f67b33"))
+			Foreground(lipgloss.Color("#f67b33")).MarginTop(0).MarginLeft(2)
 
 	vendorStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#CC99FF"))
@@ -86,7 +87,8 @@ var (
 			Foreground(lipgloss.Color("#333333"))
 
 	progressMetaStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#6d7478"))
+				Foreground(lipgloss.Color("#6d7478")).
+				Padding(0, 1)
 
 	tableBorderStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("240"))
@@ -102,8 +104,8 @@ var (
 	tableVendorStyle = vendorStyle.
 				Padding(0, 1)
 
-	tableOSStyle = dimStyle.
-			Padding(0, 1)
+	tableOSStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#7e7e7e")).Padding(0, 1)
 
 	tableDeviceStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#f67b33")).
@@ -183,79 +185,9 @@ func New(opts models.ScanOptions) Model {
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		runScanCmd(m.opts, m.hostCh, m.progCh),
-		waitForHost(m.hostCh),
-		waitForProgress(m.progCh),
+		waitForHostCmd(m.hostCh),
+		waitForProgressCmd(m.progCh),
 	)
-}
-
-// --- Async commands ---
-
-func runScanCmd(opts models.ScanOptions, hostCh chan *models.Host, progCh chan [2]int) tea.Cmd {
-	return func() tea.Msg {
-		defer close(hostCh)
-		defer close(progCh)
-
-		ctx := context.Background()
-		var finalDone atomic.Int64
-		var finalTotal atomic.Int64
-		eng := &scanner.Engine{
-			Opts: opts,
-			OnHost: func(h *models.Host) {
-				hostCh <- h
-
-			},
-			OnProgress: func(done, total int) {
-				finalDone.Store(int64(done))
-				finalTotal.Store(int64(total))
-
-				select {
-				case progCh <- [2]int{done, total}:
-				default:
-				}
-			},
-		}
-		result := eng.Run(ctx)
-		return scanDoneMsg{
-			result:     result,
-			finalDone:  int(finalDone.Load()),
-			finalTotal: int(finalTotal.Load()),
-		}
-	}
-}
-
-func waitForHost(hostCh chan *models.Host) tea.Cmd {
-	return func() tea.Msg {
-		h, ok := <-hostCh
-		if !ok {
-			return nil
-		}
-
-		batch := []*models.Host{h}
-		for len(batch) < hostBatchSize {
-			select {
-			case nextH, nextOk := <-hostCh:
-				if !nextOk {
-					return hostsFoundMsg{hosts: batch}
-				}
-				batch = append(batch, nextH)
-			default:
-				return hostsFoundMsg{hosts: batch}
-			}
-		}
-
-		return hostsFoundMsg{hosts: batch}
-	}
-}
-
-// waitForProgress blocks until the next progress tick arrives.
-func waitForProgress(progCh chan [2]int) tea.Cmd {
-	return func() tea.Msg {
-		v, ok := <-progCh
-		if !ok {
-			return nil
-		}
-		return progressMsg{done: v[0], total: v[1]}
-	}
 }
 
 // --- Update ---
@@ -292,7 +224,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, host := range msg.hosts {
 			m.upsertHost(host)
 		}
-		return m, waitForHost(m.hostCh)
+		return m, waitForHostCmd(m.hostCh)
 
 	case progressMsg:
 		if m.finished {
@@ -300,7 +232,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.done = msg.done
 		m.total = msg.total
-		return m, waitForProgress(m.progCh)
+		return m, waitForProgressCmd(m.progCh)
 
 	case scanDoneMsg:
 		m.finished = true
@@ -342,7 +274,7 @@ func (m Model) View() string {
 			sections = append(sections, noteStyle.Render("Terminal is too small to render the host table. Expand the viewport to continue."))
 		}
 	} else if m.done > 0 {
-		sections = append(sections, dimStyle.Render("  Searching for hosts..."))
+		sections = append(sections, dimStyle.Render("Searching for hosts..."))
 	}
 
 	if layout.summary != "" {
@@ -365,12 +297,18 @@ func (m Model) renderSummary() string {
 		return ""
 	}
 
-	return strings.Join([]string{
-		fmt.Sprintf("  Scan complete. Found %d host(s) in %s",
-			m.summaryAliveHosts(),
-			m.result.Duration().Round(0)),
-		dimStyle.Render("  Press 'q' or 'ctrl+c' to exit."),
-	}, "\n")
+	summaryHeader := summaryHeaderStyle.Render(fmt.Sprintf(
+		"Scan complete. Found %d host(s) in %s",
+		m.summaryAliveHosts(),
+		m.result.Duration().Round(0),
+	))
+	exitHint := dimStyle.Render("Press 'q' or 'ctrl+c' to exit.")
+
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		summaryHeader,
+		exitHint,
+	)
 }
 
 func (m Model) summaryAliveHosts() int {
@@ -652,13 +590,12 @@ func (m Model) renderHostTableSection(visibleHosts []*models.Host, viewport tabl
 
 func joinSections(sections ...string) string {
 	filtered := make([]string, 0, len(sections))
-	for _, section := range sections {
-		if section == "" {
-			continue
+	for _, s := range sections {
+		if strings.TrimSpace(s) != "" {
+			filtered = append(filtered, s)
 		}
-		filtered = append(filtered, section)
 	}
-	return strings.Join(filtered, "\n\n")
+	return lipgloss.JoinVertical(lipgloss.Left, filtered...)
 }
 
 func joinLines(lines ...string) string {
@@ -799,11 +736,11 @@ func renderHostTableStatus(total, start, end int) string {
 	}
 
 	if start == 0 && end == total {
-		return dimStyle.Render(fmt.Sprintf("  Hosts visible: %d", total))
+		return dimStyle.Render(fmt.Sprintf("Hosts visible: %d", total))
 	}
 
 	return dimStyle.Render(fmt.Sprintf(
-		"  Showing hosts %d-%d of %d. Use ↑/↓, PgUp/PgDn, Home/End to scroll.",
+		"Showing hosts %d-%d of %d. Use ↑/↓, PgUp/PgDn, Home/End to scroll.",
 		start+1,
 		end,
 		total,
@@ -847,7 +784,7 @@ func renderRandomizedMACFootnote(hosts []*models.Host) string {
 		}
 		snapshot := host.Snapshot()
 		if snapshot.Vendor == randomizedMACVendorValue || snapshot.Device == randomizedMACDeviceValue {
-			return noteStyle.Render("  * For Randomized MAC vendor and device are undetectable.")
+			return noteStyle.Render("* For Randomized MAC vendor and device are undetectable.")
 		}
 	}
 	return ""

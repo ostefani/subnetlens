@@ -2,9 +2,11 @@ package tui
 
 import (
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/ostefani/subnetlens/models"
 	"github.com/ostefani/subnetlens/scanner"
 )
@@ -57,6 +59,60 @@ func TestHostTableViewportReservesSpaceForSummary(t *testing.T) {
 	}
 	if withSummary.rows >= withoutSummary.rows {
 		t.Fatalf("expected summary footer to reduce table rows, got %d >= %d", withSummary.rows, withoutSummary.rows)
+	}
+}
+
+func TestPrimaryBlockPaddingMatchesDesign(t *testing.T) {
+	if got := progressStyle.GetPaddingLeft(); got != 0 {
+		t.Fatalf("expected progress block left padding 0, got %d", got)
+	}
+	if got := progressStyle.GetPaddingRight(); got != 0 {
+		t.Fatalf("expected progress block right padding 0, got %d", got)
+	}
+	if got := localMachineStyle.GetPaddingLeft(); got != 3 {
+		t.Fatalf("expected local machine block left padding 3 to preserve the box shape, got %d", got)
+	}
+	if got := localMachineStyle.GetPaddingRight(); got != 3 {
+		t.Fatalf("expected local machine block right padding 3 to preserve the box shape, got %d", got)
+	}
+	if got := localMachineStyle.GetPaddingTop(); got != 1 {
+		t.Fatalf("expected local machine block top padding 1, got %d", got)
+	}
+	if got := localMachineStyle.GetPaddingBottom(); got != 1 {
+		t.Fatalf("expected local machine block bottom padding 1, got %d", got)
+	}
+}
+
+func TestRenderSummaryUsesStyledLayout(t *testing.T) {
+	hosts := makeHosts(2)
+	hosts[0].SetAlive(true)
+
+	m := Model{
+		finished: true,
+		result: &models.ScanResult{
+			StartedAt:  time.Unix(0, 0),
+			FinishedAt: time.Unix(5, 0),
+			Hosts:      hosts,
+		},
+	}
+
+	summary := m.renderSummary()
+	rawLines := strings.Split(summary, "\n")
+	lines := make([]string, 0, len(rawLines))
+	for _, line := range rawLines {
+		if strings.TrimSpace(ansi.Strip(line)) == "" {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	if len(lines) != 2 {
+		t.Fatalf("expected summary to have 2 non-empty lines, got %d", len(lines))
+	}
+	if stripped := strings.TrimSpace(ansi.Strip(lines[0])); !strings.HasPrefix(stripped, "Scan complete. Found 1 host(s) in 5s") {
+		t.Fatalf("expected styled summary headline, got %q", stripped)
+	}
+	if stripped := strings.TrimSpace(ansi.Strip(lines[1])); stripped != "Press 'q' or 'ctrl+c' to exit." {
+		t.Fatalf("expected summary footer text to remain unchanged, got %q", stripped)
 	}
 }
 
@@ -220,7 +276,7 @@ func TestWaitForHostReturnsBufferedBatch(t *testing.T) {
 	hostCh <- hostB
 	hostCh <- hostC
 
-	msg := waitForHost(hostCh)()
+	msg := waitForHostCmd(hostCh)()
 	batchMsg, ok := msg.(hostsFoundMsg)
 	if !ok {
 		t.Fatalf("expected hostsFoundMsg, got %T", msg)
@@ -243,7 +299,7 @@ func TestWaitForHostRespectsBatchLimit(t *testing.T) {
 		hostCh <- models.NewHost("192.168.1." + strconv.Itoa(i+1))
 	}
 
-	msg := waitForHost(hostCh)()
+	msg := waitForHostCmd(hostCh)()
 	batchMsg, ok := msg.(hostsFoundMsg)
 	if !ok {
 		t.Fatalf("expected hostsFoundMsg, got %T", msg)
@@ -260,7 +316,7 @@ func TestWaitForHostReturnsNilWhenClosed(t *testing.T) {
 	hostCh := make(chan *models.Host)
 	close(hostCh)
 
-	if msg := waitForHost(hostCh)(); msg != nil {
+	if msg := waitForHostCmd(hostCh)(); msg != nil {
 		t.Fatalf("expected nil when channel is closed, got %T", msg)
 	}
 }
@@ -274,7 +330,7 @@ func TestRenderRandomizedMACFootnote(t *testing.T) {
 	if footnote == "" {
 		t.Fatal("expected randomized MAC footnote to be rendered")
 	}
-	if got, want := footnote, noteStyle.Render("  * For Randomized MAC vendor and device are undetectable."); got != want {
+	if got, want := footnote, noteStyle.Render("* For Randomized MAC vendor and device are undetectable."); got != want {
 		t.Fatalf("expected footnote %q, got %q", want, got)
 	}
 	if got := displayVendor(host.Snapshot().Vendor); got != randomizedMACLabel {
