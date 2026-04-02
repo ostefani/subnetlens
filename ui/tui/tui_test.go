@@ -133,6 +133,83 @@ func TestVisibleHostsRefreshesPointerReplacement(t *testing.T) {
 	}
 }
 
+func TestRenderHostTableSectionReusesMatchingCache(t *testing.T) {
+	visibleHosts := makeHosts(2)
+	m := Model{
+		tableCache: &tableRenderCache{
+			width:    120,
+			start:    0,
+			end:      2,
+			total:    2,
+			rendered: "cached table section",
+		},
+	}
+
+	got := m.renderHostTableSection(visibleHosts, tableViewport{
+		width: 120,
+		start: 0,
+		end:   2,
+	})
+
+	if got != "cached table section" {
+		t.Fatalf("expected cached table section, got %q", got)
+	}
+	if m.tableCache.dirty {
+		t.Fatal("expected cache to remain clean when the viewport signature matches")
+	}
+}
+
+func TestRenderHostTableSectionRebuildsAfterHostUpdate(t *testing.T) {
+	m := Model{
+		tableCache: &tableRenderCache{
+			width:    120,
+			start:    0,
+			end:      1,
+			total:    1,
+			rendered: "stale table section",
+		},
+		hostIndex: make(map[string]int),
+	}
+
+	m.upsertHost(models.NewHost("192.168.1.20"))
+
+	rendered := m.renderHostTableSection(m.visibleHosts(), tableViewport{
+		width: 120,
+		start: 0,
+		end:   1,
+	})
+
+	if rendered == "stale table section" {
+		t.Fatal("expected table section cache to be invalidated after a host update")
+	}
+	if m.tableCache.dirty {
+		t.Fatal("expected the rebuilt table section cache to be marked clean")
+	}
+}
+
+func TestRenderHostTableSectionRebuildsWhenViewportChanges(t *testing.T) {
+	visibleHosts := makeHosts(2)
+	m := Model{
+		tableCache: &tableRenderCache{
+			width:    120,
+			start:    0,
+			end:      2,
+			total:    2,
+			rendered: "cached table section",
+		},
+	}
+
+	rendered := m.renderHostTableSection(visibleHosts, tableViewport{
+		width: 80,
+		start: 0,
+		end:   2,
+	})
+
+	if rendered == "cached table section" {
+		t.Fatal("expected viewport changes to rebuild the cached table section")
+	}
+}
+
 func TestWaitForHostReturnsBufferedBatch(t *testing.T) {
 	hostCh := make(chan *models.Host, 4)
 	hostA := models.NewHost("192.168.1.10")

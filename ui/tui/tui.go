@@ -154,6 +154,7 @@ type Model struct {
 	progCh       chan [2]int
 	hosts        []*models.Host
 	visibleCache []*models.Host
+	tableCache   *tableRenderCache
 	hostIndex    map[string]int
 	done         int
 	total        int
@@ -172,6 +173,7 @@ func New(opts models.ScanOptions) Model {
 		local:        scanner.LocalDiscoveryInfoForTarget(opts.Subnet),
 		hostCh:       make(chan *models.Host, 32),
 		progCh:       make(chan [2]int, 32),
+		tableCache:   &tableRenderCache{dirty: true},
 		hostIndex:    make(map[string]int),
 		windowWidth:  defaultWindowWidth,
 		windowHeight: defaultWindowHeight,
@@ -273,9 +275,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "pgdown", " ":
 			m.scrollTable(m.tablePageStep())
 		case "home", "g":
-			m.tableOffset = 0
+			m.setTableOffset(0)
 		case "end", "G":
-			m.tableOffset = m.maxTableOffset()
+			m.setTableOffset(m.maxTableOffset())
 		}
 		return m, nil
 
@@ -283,6 +285,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.windowWidth = msg.Width
 		m.windowHeight = msg.Height
 		m.clampTableOffset()
+		m.invalidateTableCache()
 		return m, nil
 
 	case hostsFoundMsg:
@@ -334,11 +337,7 @@ func (m Model) View() string {
 	if len(visibleHosts) > 0 {
 		viewport := m.hostTableViewportWithLayout(visibleHosts, layout)
 		if viewport.rows > 0 {
-			pageHosts := visibleHosts[viewport.start:viewport.end]
-			tableBlock := renderHostTable(pageHosts, viewport.width)
-			footnote := renderRandomizedMACFootnote(pageHosts)
-			status := renderHostTableStatus(len(visibleHosts), viewport.start, viewport.end)
-			sections = append(sections, joinLines(tableBlock, footnote, status))
+			sections = append(sections, m.renderHostTableSection(visibleHosts, viewport))
 		} else {
 			sections = append(sections, noteStyle.Render("Terminal is too small to render the host table. Expand the viewport to continue."))
 		}
@@ -401,6 +400,7 @@ func (m *Model) upsertHost(host *models.Host) {
 		return
 	}
 	m.rebuildVisibleHosts()
+	m.invalidateTableCache()
 	m.clampTableOffset()
 }
 
@@ -440,6 +440,7 @@ func (m *Model) mergeHosts(hosts []*models.Host) {
 		return
 	}
 	m.rebuildVisibleHosts()
+	m.invalidateTableCache()
 	m.clampTableOffset()
 }
 
@@ -480,8 +481,16 @@ func (m *Model) scrollTable(delta int) {
 	if delta == 0 {
 		return
 	}
-	m.tableOffset += delta
+	m.setTableOffset(m.tableOffset + delta)
+}
+
+func (m *Model) setTableOffset(offset int) {
+	previous := m.tableOffset
+	m.tableOffset = offset
 	m.clampTableOffset()
+	if m.tableOffset != previous {
+		m.invalidateTableCache()
+	}
 }
 
 func (m *Model) clampTableOffset() {
@@ -521,6 +530,15 @@ type tableViewport struct {
 	rows  int
 	start int
 	end   int
+}
+
+type tableRenderCache struct {
+	width    int
+	start    int
+	end      int
+	total    int
+	rendered string
+	dirty    bool
 }
 
 type viewLayout struct {
@@ -595,6 +613,41 @@ func (m Model) hostTableViewportWithLayout(hosts []*models.Host, layout viewLayo
 		start: start,
 		end:   end,
 	}
+}
+
+func (m *Model) invalidateTableCache() {
+	if m.tableCache == nil {
+		m.tableCache = &tableRenderCache{dirty: true}
+		return
+	}
+	m.tableCache.dirty = true
+}
+
+func (m Model) renderHostTableSection(visibleHosts []*models.Host, viewport tableViewport) string {
+	cache := m.tableCache
+	if cache == nil {
+		cache = &tableRenderCache{dirty: true}
+	}
+
+	if cache.dirty ||
+		cache.width != viewport.width ||
+		cache.start != viewport.start ||
+		cache.end != viewport.end ||
+		cache.total != len(visibleHosts) {
+		pageHosts := visibleHosts[viewport.start:viewport.end]
+		tableBlock := renderHostTable(pageHosts, viewport.width)
+		footnote := renderRandomizedMACFootnote(pageHosts)
+		status := renderHostTableStatus(len(visibleHosts), viewport.start, viewport.end)
+
+		cache.width = viewport.width
+		cache.start = viewport.start
+		cache.end = viewport.end
+		cache.total = len(visibleHosts)
+		cache.rendered = joinLines(tableBlock, footnote, status)
+		cache.dirty = false
+	}
+
+	return cache.rendered
 }
 
 func joinSections(sections ...string) string {
