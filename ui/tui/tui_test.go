@@ -90,6 +90,26 @@ func TestMergeHostsPreservesStreamOrderAndAddsMissingFinalHosts(t *testing.T) {
 	}
 }
 
+func TestRenderRandomizedMACFootnote(t *testing.T) {
+	host := models.NewHost("192.168.1.44")
+	host.SetVendor(randomizedMACVendorValue)
+	host.SetDevice(randomizedMACDeviceValue)
+
+	footnote := renderRandomizedMACFootnote([]*models.Host{host})
+	if footnote == "" {
+		t.Fatal("expected randomized MAC footnote to be rendered")
+	}
+	if got, want := footnote, noteStyle.Render("  * For Randomized MAC vendor and device are undetectable."); got != want {
+		t.Fatalf("expected footnote %q, got %q", want, got)
+	}
+	if got := displayVendor(host.Snapshot().Vendor); got != randomizedMACLabel {
+		t.Fatalf("expected vendor label %q, got %q", randomizedMACLabel, got)
+	}
+	if got := displayDevice(host.Snapshot().Device); got != randomizedMACLabel {
+		t.Fatalf("expected device label %q, got %q", randomizedMACLabel, got)
+	}
+}
+
 func makeHosts(count int) []*models.Host {
 	hosts := make([]*models.Host, 0, count)
 	for i := 1; i <= count; i++ {

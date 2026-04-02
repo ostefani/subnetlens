@@ -120,13 +120,18 @@ const (
 	defaultWindowHeight = 32
 	hostTableMinHeight  = 5
 	hostTableFrameLines = 4
-	tableRightSlack     = 1
 	ipColumnWidth       = 15
 	hostnameColumnWidth = 15
 	vendorColumnWidth   = 22
 	deviceColumnWidth   = 18
 	osColumnWidth       = 5
-	macColumnWidth = 20
+	macColumnWidth      = 20
+)
+
+const (
+	randomizedMACVendorValue = "Randomized MAC — vendor unknown"
+	randomizedMACDeviceValue = "Randomized MAC — device undetectable"
+	randomizedMACLabel       = "Randomized MAC*"
 )
 
 // --- Messages ---
@@ -299,9 +304,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) View() string {
 	if m.err != nil {
-		return layoutStyle.
-			MaxWidth(m.contentWidth()).
-			Render(fmt.Sprintf("\nError: %v\n", m.err))
+		return m.renderLayout(fmt.Sprintf("\nError: %v\n", m.err))
 	}
 
 	visibleHosts := m.visibleHosts()
@@ -310,9 +313,11 @@ func (m Model) View() string {
 	if len(visibleHosts) > 0 {
 		viewport := m.hostTableViewport(visibleHosts)
 		if viewport.rows > 0 {
-			tableBlock := renderHostTable(visibleHosts[viewport.start:viewport.end], viewport.width)
+			pageHosts := visibleHosts[viewport.start:viewport.end]
+			tableBlock := renderHostTable(pageHosts, viewport.width)
+			footnote := renderRandomizedMACFootnote(pageHosts)
 			status := renderHostTableStatus(len(visibleHosts), viewport.start, viewport.end)
-			sections = append(sections, joinLines(tableBlock, status))
+			sections = append(sections, joinLines(tableBlock, footnote, status))
 		} else {
 			sections = append(sections, noteStyle.Render("Terminal is too small to render the host table. Expand the viewport to continue."))
 		}
@@ -324,9 +329,7 @@ func (m Model) View() string {
 		sections = append(sections, summary)
 	}
 
-	return layoutStyle.
-		MaxWidth(m.contentWidth()).
-		Render(joinSections(sections...))
+	return m.renderLayout(joinSections(sections...))
 }
 
 func (m Model) renderHeader() string {
@@ -383,11 +386,21 @@ func (m *Model) mergeHosts(hosts []*models.Host) {
 }
 
 func (m Model) contentWidth() int {
-	width := m.windowWidth - layoutStyle.GetHorizontalFrameSize() - tableRightSlack
+	width := m.windowWidth - layoutStyle.GetHorizontalFrameSize()
 	if width < 1 {
 		return 1
 	}
 	return width
+}
+
+func (m Model) renderLayout(content string) string {
+	width := m.windowWidth
+	if width < 1 {
+		width = 1
+	}
+	return layoutStyle.
+		MaxWidth(width).
+		Render(content)
 }
 
 func (m Model) contentHeight(content string) int {
@@ -663,11 +676,42 @@ func hostTableRow(snapshot models.HostSnapshot) []string {
 		truncateCell(snapshot.IP, ipColumnWidth-2),
 		truncateCell(snapshot.Hostname, hostnameColumnWidth-2),
 		orDefault(snapshot.MAC, "—"),
-		truncateCell(orDefault(snapshot.Vendor, "—"), vendorColumnWidth-2),
+		truncateCell(displayVendor(snapshot.Vendor), vendorColumnWidth-2),
 		hostOSLabel(snapshot.OS),
-		truncateCell(orDefault(snapshot.Device, "—"), deviceColumnWidth-2),
+		truncateCell(displayDevice(snapshot.Device), deviceColumnWidth-2),
 		formatPorts(snapshot.OpenPorts),
 	}
+}
+
+func displayVendor(vendor string) string {
+	switch vendor {
+	case randomizedMACVendorValue:
+		return randomizedMACLabel
+	default:
+		return orDefault(vendor, "—")
+	}
+}
+
+func displayDevice(device string) string {
+	switch device {
+	case randomizedMACDeviceValue:
+		return randomizedMACLabel
+	default:
+		return orDefault(device, "—")
+	}
+}
+
+func renderRandomizedMACFootnote(hosts []*models.Host) string {
+	for _, host := range hosts {
+		if host == nil {
+			continue
+		}
+		snapshot := host.Snapshot()
+		if snapshot.Vendor == randomizedMACVendorValue || snapshot.Device == randomizedMACDeviceValue {
+			return noteStyle.Render("  * For Randomized MAC vendor and device are undetectable.")
+		}
+	}
+	return ""
 }
 
 func truncateCell(value string, width int) string {
