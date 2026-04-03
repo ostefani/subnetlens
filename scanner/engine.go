@@ -9,14 +9,17 @@ import (
 )
 
 type Engine struct {
-	Opts       models.ScanOptions
-	OnHost     func(h *models.Host)  // called when a host is ready or later updated
-	OnProgress func(done, total int) // called after each ping probe in discovery
+	Opts         models.ScanOptions
+	SocketBudget int
+	OnHost       func(h *models.Host)  // called when a host is ready or later updated
+	OnProgress   func(done, total int) // called after each ping probe in discovery
 }
 
 func (e *Engine) Run(ctx context.Context) *models.ScanResult {
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	socketLimiter := newSocketLimiter(e.SocketBudget)
 
 	result := &models.ScanResult{
 		Subnet:    e.Opts.Subnet,
@@ -45,9 +48,9 @@ func (e *Engine) Run(ctx context.Context) *models.ScanResult {
 		preheatSubnet(runCtx, targets.seq, targets.total, icmpScanner)
 	}
 
-	eventCh := DiscoverHosts(runCtx, e.Opts, e.OnProgress, cache, icmpScanner, arpCache)
+	eventCh := DiscoverHosts(runCtx, e.Opts, e.OnProgress, cache, icmpScanner, arpCache, socketLimiter)
 
-	globalSem := make(chan struct{}, e.Opts.Concurrency)
+	globalSem := make(chan struct{}, e.Opts.ScanConcurrencyLimit())
 	var scanWG sync.WaitGroup
 	hostsByIP := make(map[string]*models.Host)
 	hostReady := make(map[string]chan struct{})
@@ -76,7 +79,7 @@ func (e *Engine) Run(ctx context.Context) *models.ScanResult {
 				defer scanWG.Done()
 				defer close(ready)
 
-				ScanPorts(runCtx, scannedHost, e.Opts, globalSem)
+				ScanPorts(runCtx, scannedHost, e.Opts, globalSem, socketLimiter)
 				EnrichHost(scannedHost, cache, arpCache)
 
 				snapshot := scannedHost.Snapshot()

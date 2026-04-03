@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func resolveHostname(ctx context.Context, ip string, cache *mdnsCache) resolveResult {
+func resolveHostname(ctx context.Context, ip string, cache *mdnsCache, socketLimiter *socketLimiter) resolveResult {
 	if cache != nil {
 		if name, ok := cache.get(ip); ok && name != "" {
 			return resolveResult{name: name}
@@ -16,7 +16,7 @@ func resolveHostname(ctx context.Context, ip string, cache *mdnsCache) resolveRe
 	}
 
 	start := time.Now()
-	if name := resolveMDNS(ctx, ip); name != "" && name != ip {
+	if name := resolveMDNS(ctx, ip, socketLimiter); name != "" && name != ip {
 		if cache != nil {
 			cache.set(ip, name)
 		}
@@ -24,7 +24,7 @@ func resolveHostname(ctx context.Context, ip string, cache *mdnsCache) resolveRe
 	}
 
 	start = time.Now()
-	if name := probeNBNS(ctx, ip); name != "" {
+	if name := probeNBNS(ctx, ip, socketLimiter); name != "" {
 		if cache != nil {
 			cache.set(ip, name)
 		}
@@ -32,7 +32,7 @@ func resolveHostname(ctx context.Context, ip string, cache *mdnsCache) resolveRe
 	}
 
 	start = time.Now()
-	if name := probePTR(ctx, ip); name != "" && name != ip {
+	if name := probePTR(ctx, ip, socketLimiter); name != "" && name != ip {
 		if cache != nil {
 			cache.set(ip, name)
 		}
@@ -42,7 +42,7 @@ func resolveHostname(ctx context.Context, ip string, cache *mdnsCache) resolveRe
 	return resolveResult{}
 }
 
-func resolveMDNS(ctx context.Context, ip string) string {
+func resolveMDNS(ctx context.Context, ip string, socketLimiter *socketLimiter) string {
 	parts := strings.Split(ip, ".")
 	if len(parts) != 4 {
 		return ""
@@ -53,7 +53,13 @@ func resolveMDNS(ctx context.Context, ip string) string {
 	query := buildPTRQuery(arpa)
 
 	timeout := cappedTimeout(ctx, 500*time.Millisecond)
-	conn, err := net.DialTimeout("udp", net.JoinHostPort(ip, "5353"), timeout)
+	if err := socketLimiter.Acquire(ctx); err != nil {
+		return ""
+	}
+	defer socketLimiter.Release()
+
+	dialer := net.Dialer{Timeout: timeout}
+	conn, err := dialer.DialContext(ctx, "udp", net.JoinHostPort(ip, "5353"))
 	if err != nil {
 		debugLog("mdns", "failed to resolve PTR query: %v", err)
 		return ""
@@ -79,7 +85,6 @@ func resolveMDNS(ctx context.Context, ip string) string {
 
 	return parseMDNSResponse(buf[:n])
 }
-
 
 func buildPTRQuery(domain string) []byte {
 	msg := []byte{

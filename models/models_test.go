@@ -43,3 +43,30 @@ func TestSetHostnameRejectsTextThatSanitizesEmpty(t *testing.T) {
 		t.Fatalf("expected default hostname to remain unchanged, got %q", got)
 	}
 }
+
+func TestScanOptionsScanConcurrencyLimitDefaults(t *testing.T) {
+	opts := ScanOptions{}
+
+	if got := opts.ScanConcurrencyLimit(); got != DefaultConcurrency {
+		t.Fatalf("expected default scan concurrency %d, got %d", DefaultConcurrency, got)
+	}
+}
+
+func TestScanOptionsDiscoveryConcurrencyFallsBackToScanConcurrency(t *testing.T) {
+	opts := ScanOptions{Concurrency: 32}
+
+	if got := opts.DiscoveryConcurrencyLimit(); got != 32 {
+		t.Fatalf("expected discovery concurrency to fall back to scan concurrency 32, got %d", got)
+	}
+}
+
+func TestScanOptionsDiscoveryConcurrencyUsesExplicitValue(t *testing.T) {
+	opts := ScanOptions{
+		Concurrency:          32,
+		DiscoveryConcurrency: 256,
+	}
+
+	if got := opts.DiscoveryConcurrencyLimit(); got != 256 {
+		t.Fatalf("expected explicit discovery concurrency 256, got %d", got)
+	}
+}

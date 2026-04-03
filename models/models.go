@@ -400,12 +400,33 @@ func (r *ScanResult) AliveHosts() []*Host {
 }
 
 type ScanOptions struct {
-	Subnet      string
-	Ports       []int
-	Timeout     time.Duration // per-connection timeout
-	Concurrency int           // parallel goroutines
-	GrabBanners bool
-	AllAlive    bool
+	Subnet               string
+	Ports                []int
+	Timeout              time.Duration // per-connection timeout
+	Concurrency          int           // max concurrent port/banner probes
+	DiscoveryConcurrency int           // max concurrent host discovery probes; 0 falls back to Concurrency
+	GrabBanners          bool
+	AllAlive             bool
+}
+
+const DefaultConcurrency = 100
+
+func (o ScanOptions) ScanConcurrencyLimit() int {
+	return normalizedConcurrency(o.Concurrency, DefaultConcurrency)
+}
+
+func (o ScanOptions) DiscoveryConcurrencyLimit() int {
+	return normalizedConcurrency(o.DiscoveryConcurrency, o.ScanConcurrencyLimit())
+}
+
+func normalizedConcurrency(value, fallback int) int {
+	if value > 0 {
+		return value
+	}
+	if fallback > 0 {
+		return fallback
+	}
+	return 1
 }
 
 var CommonPorts = []int{

@@ -15,12 +15,13 @@ import (
 )
 
 var (
-	flagPorts       []int
-	flagTimeout     int
-	flagConcurrency int
-	flagBanners     bool
-	flagPlain       bool
-	flagAllAlive    bool
+	flagPorts                []int
+	flagTimeout              int
+	flagConcurrency          int
+	flagDiscoveryConcurrency int
+	flagBanners              bool
+	flagPlain                bool
+	flagAllAlive             bool
 )
 
 var rootCmd = &cobra.Command{
@@ -47,7 +48,9 @@ func init() {
 	scanCmd.Flags().IntVarP(&flagTimeout, "timeout", "t", 500,
 		"Per-connection timeout in milliseconds")
 	scanCmd.Flags().IntVarP(&flagConcurrency, "concurrency", "c", 100,
-		"Number of parallel goroutines")
+		"Max concurrent port scan and banner probes")
+	scanCmd.Flags().IntVar(&flagDiscoveryConcurrency, "discovery-concurrency", 0,
+		"Max concurrent host discovery probes (0 = use --concurrency)")
 	scanCmd.Flags().BoolVarP(&flagBanners, "banners", "b", false,
 		"Attempt banner grabbing on open ports")
 	scanCmd.Flags().BoolVar(&flagPlain, "plain", false,
@@ -62,26 +65,29 @@ func runScan(cmd *cobra.Command, args []string) error {
 	subnet := args[0]
 
 	opts := models.ScanOptions{
-		Subnet:      subnet,
-		Ports:       flagPorts,
-		Timeout:     time.Duration(flagTimeout) * time.Millisecond,
-		Concurrency: flagConcurrency,
-		GrabBanners: flagBanners,
-		AllAlive:    flagAllAlive,
+		Subnet:               subnet,
+		Ports:                flagPorts,
+		Timeout:              time.Duration(flagTimeout) * time.Millisecond,
+		Concurrency:          flagConcurrency,
+		DiscoveryConcurrency: flagDiscoveryConcurrency,
+		GrabBanners:          flagBanners,
+		AllAlive:             flagAllAlive,
 	}
 	if len(opts.Ports) == 0 {
 		opts.Ports = models.CommonPorts
 	}
+	opts, socketBudget, warnings := scanner.PrepareScanOptions(opts)
 
 	if flagPlain {
-		return runPlain(opts)
+		return runPlain(opts, socketBudget, warnings)
 	}
 
-	return tui.Run(opts)
+	return tui.Run(opts, socketBudget, warnings)
 }
 
 // runPlain outputs results as plain text — useful for scripting / CI pipelines.
-func runPlain(opts models.ScanOptions) error {
+func runPlain(opts models.ScanOptions, socketBudget int, warnings []string) error {
+	printWarnings(warnings)
 	fmt.Fprintf(os.Stdout, "Scanning %s ...\n\n", opts.Subnet)
 	local := scanner.LocalDiscoveryInfoForTarget(opts.Subnet)
 	printPlainLocalMachine(local)
@@ -95,7 +101,8 @@ func runPlain(opts models.ScanOptions) error {
 	}
 
 	eng := &scanner.Engine{
-		Opts: opts,
+		Opts:         opts,
+		SocketBudget: socketBudget,
 		OnProgress: func(done, total int) {
 			fmt.Fprintf(os.Stderr, "\r  Probing hosts: %d/%d", done, total)
 		},
@@ -146,6 +153,15 @@ func runPlain(opts models.ScanOptions) error {
 	fmt.Printf("Scan complete in %s\n", result.Duration().Round(time.Millisecond))
 	fmt.Printf("%d host(s) found on %s\n", len(result.AliveHosts()), opts.Subnet)
 	return nil
+}
+
+func printWarnings(warnings []string) {
+	for _, warning := range warnings {
+		fmt.Fprintf(os.Stderr, "Warning: %s\n", warning)
+	}
+	if len(warnings) > 0 {
+		fmt.Fprintln(os.Stderr)
+	}
 }
 
 func plainHostReady(snapshot models.HostSnapshot) bool {

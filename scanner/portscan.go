@@ -13,7 +13,7 @@ import (
 	"github.com/ostefani/subnetlens/models"
 )
 
-func ScanPorts(ctx context.Context, host *models.Host, opts models.ScanOptions, sem chan struct{}) {
+func ScanPorts(ctx context.Context, host *models.Host, opts models.ScanOptions, sem chan struct{}, socketLimiter *socketLimiter) {
 	snapshot := host.Snapshot()
 	ports := opts.Ports
 	if len(ports) == 0 {
@@ -39,7 +39,7 @@ Loop:
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			p := probePort(ctx, snapshot.IP, portNum, opts)
+			p := probePort(ctx, snapshot.IP, portNum, opts, socketLimiter)
 
 			if p.State == models.PortOpen {
 				// 2. Lock-free send to the buffered channel
@@ -65,7 +65,7 @@ Loop:
 
 }
 
-func probePort(ctx context.Context, ip string, portNum int, opts models.ScanOptions) models.Port {
+func probePort(ctx context.Context, ip string, portNum int, opts models.ScanOptions, socketLimiter *socketLimiter) models.Port {
 	port := models.Port{
 		Number:   portNum,
 		Protocol: "tcp",
@@ -74,6 +74,12 @@ func probePort(ctx context.Context, ip string, portNum int, opts models.ScanOpti
 
 	addr := fmt.Sprintf("%s:%d", ip, portNum)
 	dialer := net.Dialer{Timeout: opts.Timeout}
+
+	if err := socketLimiter.Acquire(ctx); err != nil {
+		debugLog("portscan", "probe %s skipped: %v", addr, err)
+		return port
+	}
+	defer socketLimiter.Release()
 
 	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {

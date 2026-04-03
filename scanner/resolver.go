@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"net"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -13,13 +14,87 @@ type resolveResult struct {
 	latency time.Duration
 }
 
+type observedConn struct {
+	net.Conn
+	limiter *socketLimiter
+	once    sync.Once
+}
+
+type observedPacketConn struct {
+	*observedConn
+	packetConn net.PacketConn
+}
+
+func (c *observedConn) Close() error {
+	err := c.Conn.Close()
+	c.once.Do(func() {
+		if c.limiter != nil {
+			c.limiter.Release()
+		}
+	})
+	return err
+}
+
+func (c *observedPacketConn) ReadFrom(b []byte) (int, net.Addr, error) {
+	return c.packetConn.ReadFrom(b)
+}
+
+func (c *observedPacketConn) WriteTo(b []byte, addr net.Addr) (int, error) {
+	return c.packetConn.WriteTo(b, addr)
+}
+
+func wrapObservedConn(conn net.Conn, limiter *socketLimiter) net.Conn {
+	observed := &observedConn{
+		Conn:    conn,
+		limiter: limiter,
+	}
+	packetConn, ok := conn.(net.PacketConn)
+	if !ok {
+		return observed
+	}
+	return &observedPacketConn{
+		observedConn: observed,
+		packetConn:   packetConn,
+	}
+}
+
+func NewBoundedResolver(limiter *socketLimiter) *net.Resolver {
+	if limiter == nil {
+		return &net.Resolver{PreferGo: true}
+	}
+
+	return &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			if err := limiter.Acquire(ctx); err != nil {
+				return nil, err
+			}
+
+			dialer := net.Dialer{}
+			conn, err := dialer.DialContext(ctx, network, address)
+			if err != nil {
+				limiter.Release()
+				return nil, err
+			}
+
+			return wrapObservedConn(conn, limiter), nil
+		},
+	}
+}
+
 // ---------------------------------------------------------------------------
 // NBNS — NetBIOS node-status (Windows)
 // ---------------------------------------------------------------------------
 
-func probeNBNS(ctx context.Context, ip string) string {
+func probeNBNS(ctx context.Context, ip string, socketLimiter *socketLimiter) string {
 	timeout := cappedTimeout(ctx, 300*time.Millisecond)
-	conn, err := net.DialTimeout("udp", net.JoinHostPort(ip, "137"), timeout)
+	if err := socketLimiter.Acquire(ctx); err != nil {
+		return ""
+	}
+	defer socketLimiter.Release()
+
+	dialer := net.Dialer{Timeout: timeout}
+	conn, err := dialer.DialContext(ctx, "udp", net.JoinHostPort(ip, "137"))
 	if err != nil {
 		return ""
 	}
@@ -44,7 +119,7 @@ func buildNBNSRequest() []byte {
 	buf := make([]byte, 50)
 	buf[0], buf[1] = 0x00, 0x01 // transaction ID
 	buf[4], buf[5] = 0x00, 0x01 // QDCOUNT: 1
-	buf[12] = 0x20               // label length: 32 encoded chars
+	buf[12] = 0x20              // label length: 32 encoded chars
 	copy(buf[13:45], nbnsEncode('*'))
 	// buf[45] = 0x00 — root label (zero value, already set)
 	buf[46], buf[47] = 0x00, 0x21 // QTYPE: NBSTAT
@@ -150,11 +225,11 @@ func parseNBNSResponse(buf []byte) string {
 // PTR — standard reverse DNS (enterprise / data-centre)
 // ---------------------------------------------------------------------------
 
-func probePTR(ctx context.Context, ip string) string {
+func probePTR(ctx context.Context, ip string, socketLimiter *socketLimiter) string {
 	ctx, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
 	defer cancel()
 
-	resolver := &net.Resolver{PreferGo: true}
+	resolver := NewBoundedResolver(socketLimiter)
 	names, err := resolver.LookupAddr(ctx, ip)
 	if err != nil || len(names) == 0 {
 		return ""
