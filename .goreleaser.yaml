@@ -90,5 +90,3 @@ release:
         ## SubnetLens {{ .Tag }}
 
         A fast, concurrent network scanner. Available for Linux, macOS, and Windows.
-
-        > ⚠️ **Note:** ICMP and ARP scanning require elevated privileges (`sudo` on Linux/macOS, Administrator on Windows).
