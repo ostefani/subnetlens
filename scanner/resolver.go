@@ -17,9 +17,15 @@ type resolveResult struct {
 // NBNS — NetBIOS node-status (Windows)
 // ---------------------------------------------------------------------------
 
-func probeNBNS(ctx context.Context, ip string) string {
+func probeNBNS(ctx context.Context, ip string, socketLimiter *socketLimiter) string {
 	timeout := cappedTimeout(ctx, 300*time.Millisecond)
-	conn, err := net.DialTimeout("udp", net.JoinHostPort(ip, "137"), timeout)
+	if err := socketLimiter.Acquire(ctx); err != nil {
+		return ""
+	}
+	defer socketLimiter.Release()
+
+	dialer := net.Dialer{Timeout: timeout}
+	conn, err := dialer.DialContext(ctx, "udp", net.JoinHostPort(ip, "137"))
 	if err != nil {
 		return ""
 	}
@@ -44,7 +50,7 @@ func buildNBNSRequest() []byte {
 	buf := make([]byte, 50)
 	buf[0], buf[1] = 0x00, 0x01 // transaction ID
 	buf[4], buf[5] = 0x00, 0x01 // QDCOUNT: 1
-	buf[12] = 0x20               // label length: 32 encoded chars
+	buf[12] = 0x20              // label length: 32 encoded chars
 	copy(buf[13:45], nbnsEncode('*'))
 	// buf[45] = 0x00 — root label (zero value, already set)
 	buf[46], buf[47] = 0x00, 0x21 // QTYPE: NBSTAT
@@ -150,9 +156,14 @@ func parseNBNSResponse(buf []byte) string {
 // PTR — standard reverse DNS (enterprise / data-centre)
 // ---------------------------------------------------------------------------
 
-func probePTR(ctx context.Context, ip string) string {
+func probePTR(ctx context.Context, ip string, socketLimiter *socketLimiter) string {
 	ctx, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
 	defer cancel()
+
+	if err := socketLimiter.Acquire(ctx); err != nil {
+		return ""
+	}
+	defer socketLimiter.Release()
 
 	resolver := &net.Resolver{PreferGo: true}
 	names, err := resolver.LookupAddr(ctx, ip)

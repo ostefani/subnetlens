@@ -35,6 +35,7 @@ func DiscoverHosts(
 	cache *mdnsCache,
 	icmpScanner *ICMPScanner,
 	arpCache *ARPCache,
+	socketLimiter *socketLimiter,
 ) <-chan HostEvent {
 	out := make(chan HostEvent, 256)
 	registry := &HostRegistry{updates: make(chan hostUpdate, 512)}
@@ -90,7 +91,7 @@ func DiscoverHosts(
 				defer waitGroup.Done()
 				defer func() { <-sem }()
 
-				updates := probeHostSmart(ctx, ip, opts, cache, icmpScanner, arpCache)
+				updates := probeHostSmart(ctx, ip, opts, cache, icmpScanner, arpCache, socketLimiter)
 
 				mu.Lock()
 				done++
@@ -291,6 +292,7 @@ func probeHostSmart(
 	cache *mdnsCache,
 	icmpScanner *ICMPScanner,
 	arpCache *ARPCache,
+	socketLimiter *socketLimiter,
 ) []hostUpdate {
 	updates := make([]hostUpdate, 0, 3)
 	if arpCache != nil {
@@ -305,9 +307,9 @@ func probeHostSmart(
 	}
 
 	resCh := make(chan resolveResult, 1)
-	go func() { resCh <- resolveHostname(ctx, ip, cache) }()
+	go func() { resCh <- resolveHostname(ctx, ip, cache, socketLimiter) }()
 
-	alive, latency, seenBy := livenessProbe(ctx, ip, opts, icmpScanner)
+	alive, latency, seenBy := livenessProbe(ctx, ip, opts, icmpScanner, socketLimiter)
 	res := <-resCh
 
 	if res.name != "" && res.name != ip {
@@ -335,7 +337,13 @@ func probeHostSmart(
 	return updates
 }
 
-func livenessProbe(ctx context.Context, ip string, opts models.ScanOptions, icmpScanner *ICMPScanner) (bool, time.Duration, string) {
+func livenessProbe(
+	ctx context.Context,
+	ip string,
+	opts models.ScanOptions,
+	icmpScanner *ICMPScanner,
+	limiter *socketLimiter,
+) (bool, time.Duration, string) {
 	if icmpScanner != nil {
 		for i := 0; i < 2; i++ {
 			alive, latency, err := icmpScanner.Probe(ctx, ip, opts.Timeout)
@@ -345,14 +353,14 @@ func livenessProbe(ctx context.Context, ip string, opts models.ScanOptions, icmp
 		}
 	}
 
-	var tcp func(context.Context, string, time.Duration) (bool, time.Duration)
+	var tcp func(context.Context, string, time.Duration, *socketLimiter) (bool, time.Duration)
 	if opts.AllAlive {
 		tcp = tcpProbeAlive
 	} else {
 		tcp = tcpProbeOpenPort
 	}
 
-	alive, latency := tcp(ctx, ip, opts.Timeout)
+	alive, latency := tcp(ctx, ip, opts.Timeout, limiter)
 	if !alive {
 		return false, 0, ""
 	}

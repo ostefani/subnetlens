@@ -152,6 +152,7 @@ func (m Model) renderHeader() string {
 	return joinSections(
 		titleStyle.Render("✧ SUBNETLENS ✧"),
 		renderProgress(m.done, m.total),
+		renderWarnings(m.warnings),
 		renderLocalMachine(m.local),
 	)
 }
@@ -264,6 +265,23 @@ func renderLocalMachine(info scanner.LocalDiscoveryInfo) string {
 
 	lines = append(lines, body)
 	return localMachineStyle.Render(joinLines(lines...))
+}
+
+func renderWarnings(warnings []string) string {
+	if len(warnings) == 0 {
+		return ""
+	}
+
+	lines := make([]string, 0, len(warnings))
+	for _, warning := range warnings {
+		warning = strings.TrimSpace(warning)
+		if warning == "" {
+			continue
+		}
+		lines = append(lines, noteStyle.Render("Warning: "+warning))
+	}
+
+	return joinLines(lines...)
 }
 
 func renderHostTable(hosts []*models.Host, width int) string {

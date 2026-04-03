@@ -10,7 +10,7 @@ import (
 	"github.com/ostefani/subnetlens/scanner"
 )
 
-func runScanCmd(opts models.ScanOptions, hostCh chan *models.Host, progCh chan [2]int) tea.Cmd {
+func runScanCmd(opts models.ScanOptions, socketBudget int, hostCh chan *models.Host, progCh chan [2]int) tea.Cmd {
 	return func() tea.Msg {
 		defer close(hostCh)
 		defer close(progCh)
@@ -21,7 +21,8 @@ func runScanCmd(opts models.ScanOptions, hostCh chan *models.Host, progCh chan [
 		var lastUpdate time.Time
 
 		eng := &scanner.Engine{
-			Opts: opts,
+			Opts:         opts,
+			SocketBudget: socketBudget,
 			OnHost: func(h *models.Host) {
 				hostCh <- h
 

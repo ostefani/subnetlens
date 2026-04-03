@@ -29,6 +29,8 @@ type scanDoneMsg struct {
 
 type Model struct {
 	opts         models.ScanOptions
+	socketBudget int
+	warnings     []string
 	local        scanner.LocalDiscoveryInfo
 	hostCh       chan *models.Host
 	progCh       chan [2]int
@@ -48,9 +50,11 @@ type Model struct {
 	tableOffset  int
 }
 
-func New(opts models.ScanOptions) Model {
+func New(opts models.ScanOptions, socketBudget int, warnings []string) Model {
 	return Model{
 		opts:         opts,
+		socketBudget: socketBudget,
+		warnings:     warnings,
 		local:        scanner.LocalDiscoveryInfoForTarget(opts.Subnet),
 		hostCh:       make(chan *models.Host, 32),
 		progCh:       make(chan [2]int, 32),
@@ -63,7 +67,7 @@ func New(opts models.ScanOptions) Model {
 
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
-		runScanCmd(m.opts, m.hostCh, m.progCh),
+		runScanCmd(m.opts, m.socketBudget, m.hostCh, m.progCh),
 		waitForHostCmd(m.hostCh),
 		waitForProgressCmd(m.progCh),
 	)
@@ -134,8 +138,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // Run starts the TUI program.
-func Run(opts models.ScanOptions) error {
-	m := New(opts)
+func Run(opts models.ScanOptions, socketBudget int, warnings []string) error {
+	m := New(opts, socketBudget, warnings)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
 	return err

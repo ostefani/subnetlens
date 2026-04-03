@@ -17,6 +17,7 @@ func tcpProbe(
 	ip string,
 	timeout time.Duration,
 	isSuccess func(error) bool,
+	socketLimiter *socketLimiter,
 ) (bool, time.Duration) {
 	probeCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -35,6 +36,11 @@ func tcpProbe(
 			defer wg.Done()
 
 			addr := net.JoinHostPort(ip, strconv.Itoa(port))
+
+			if err := socketLimiter.Acquire(probeCtx); err != nil {
+				return
+			}
+			defer socketLimiter.Release()
 
 			d := net.Dialer{}
 			conn, err := d.DialContext(probeCtx, "tcp", addr)
@@ -61,14 +67,14 @@ func tcpProbe(
 	return true, elapsed
 }
 
-func tcpProbeOpenPort(ctx context.Context, ip string, timeout time.Duration) (bool, time.Duration) {
+func tcpProbeOpenPort(ctx context.Context, ip string, timeout time.Duration, socketLimiter *socketLimiter) (bool, time.Duration) {
 	return tcpProbe(ctx, ip, timeout, func(err error) bool {
 		return err == nil
-	})
+	}, socketLimiter)
 }
 
-func tcpProbeAlive(ctx context.Context, ip string, timeout time.Duration) (bool, time.Duration) {
-	return tcpProbe(ctx, ip, timeout, isRemoteTCPResponse)
+func tcpProbeAlive(ctx context.Context, ip string, timeout time.Duration, socketLimiter *socketLimiter) (bool, time.Duration) {
+	return tcpProbe(ctx, ip, timeout, isRemoteTCPResponse, socketLimiter)
 }
 
 func isRemoteTCPResponse(err error) bool {

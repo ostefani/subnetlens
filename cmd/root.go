@@ -76,16 +76,18 @@ func runScan(cmd *cobra.Command, args []string) error {
 	if len(opts.Ports) == 0 {
 		opts.Ports = models.CommonPorts
 	}
+	opts, socketBudget, warnings := scanner.PrepareScanOptions(opts)
 
 	if flagPlain {
-		return runPlain(opts)
+		return runPlain(opts, socketBudget, warnings)
 	}
 
-	return tui.Run(opts)
+	return tui.Run(opts, socketBudget, warnings)
 }
 
 // runPlain outputs results as plain text — useful for scripting / CI pipelines.
-func runPlain(opts models.ScanOptions) error {
+func runPlain(opts models.ScanOptions, socketBudget int, warnings []string) error {
+	printWarnings(warnings)
 	fmt.Fprintf(os.Stdout, "Scanning %s ...\n\n", opts.Subnet)
 	local := scanner.LocalDiscoveryInfoForTarget(opts.Subnet)
 	printPlainLocalMachine(local)
@@ -99,7 +101,8 @@ func runPlain(opts models.ScanOptions) error {
 	}
 
 	eng := &scanner.Engine{
-		Opts: opts,
+		Opts:         opts,
+		SocketBudget: socketBudget,
 		OnProgress: func(done, total int) {
 			fmt.Fprintf(os.Stderr, "\r  Probing hosts: %d/%d", done, total)
 		},
@@ -150,6 +153,15 @@ func runPlain(opts models.ScanOptions) error {
 	fmt.Printf("Scan complete in %s\n", result.Duration().Round(time.Millisecond))
 	fmt.Printf("%d host(s) found on %s\n", len(result.AliveHosts()), opts.Subnet)
 	return nil
+}
+
+func printWarnings(warnings []string) {
+	for _, warning := range warnings {
+		fmt.Fprintf(os.Stderr, "Warning: %s\n", warning)
+	}
+	if len(warnings) > 0 {
+		fmt.Fprintln(os.Stderr)
+	}
 }
 
 func plainHostReady(snapshot models.HostSnapshot) bool {
