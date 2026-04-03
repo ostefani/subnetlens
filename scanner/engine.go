@@ -47,7 +47,7 @@ func (e *Engine) Run(ctx context.Context) *models.ScanResult {
 
 	eventCh := DiscoverHosts(runCtx, e.Opts, e.OnProgress, cache, icmpScanner, arpCache)
 
-	globalSem := make(chan struct{}, e.Opts.Concurrency)
+	globalSem := make(chan struct{}, e.Opts.ScanConcurrencyLimit())
 	var scanWG sync.WaitGroup
 	hostsByIP := make(map[string]*models.Host)
 	hostReady := make(map[string]chan struct{})

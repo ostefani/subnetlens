@@ -112,7 +112,8 @@ subnetlens scan [subnet] [flags]
 **Flags:**
 `-p`, `--ports` string Comma-separated ports to scan (default: common 23 ports)
 `-t`, `--timeout` int Per-connection timeout in ms (default: 500)
-`-c`, `--concurrency` int Parallel goroutines (default: 100)
+`-c`, `--concurrency` int Max concurrent port scan and banner probes (default: 100)
+`--discovery-concurrency` int Max concurrent host discovery probes (`0` reuses `--concurrency`)
 `-b`, `--banners` Grab service banners
 `--plain` Plain text output (no TUI)
 `--all-alive` Show all discovered hosts, including those that respond with TCP connection errors.
@@ -135,7 +136,7 @@ subnetlens scan [subnet] [flags]
   subnetlens scan <IP start>-<IP end>
   subnetlens scan <IP> --ports 22,80,443,8080
   subnetlens scan <IP> --plain --banners
-  subnetlens scan <IP> --concurrency 200 --timeout 300
+  subnetlens scan <IP> --concurrency 100 --discovery-concurrency 400 --timeout 300
 ```
 
 ## Project Structure

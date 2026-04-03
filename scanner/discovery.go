@@ -61,7 +61,7 @@ func DiscoverHosts(
 
 		go triggerMulticastDiscovery(ctx)
 
-		sem := make(chan struct{}, opts.Concurrency)
+		sem := make(chan struct{}, opts.DiscoveryConcurrencyLimit())
 		var waitGroup sync.WaitGroup
 		done := 0
 		var mu sync.Mutex

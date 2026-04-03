@@ -15,12 +15,13 @@ import (
 )
 
 var (
-	flagPorts       []int
-	flagTimeout     int
-	flagConcurrency int
-	flagBanners     bool
-	flagPlain       bool
-	flagAllAlive    bool
+	flagPorts                []int
+	flagTimeout              int
+	flagConcurrency          int
+	flagDiscoveryConcurrency int
+	flagBanners              bool
+	flagPlain                bool
+	flagAllAlive             bool
 )
 
 var rootCmd = &cobra.Command{
@@ -47,7 +48,9 @@ func init() {
 	scanCmd.Flags().IntVarP(&flagTimeout, "timeout", "t", 500,
 		"Per-connection timeout in milliseconds")
 	scanCmd.Flags().IntVarP(&flagConcurrency, "concurrency", "c", 100,
-		"Number of parallel goroutines")
+		"Max concurrent port scan and banner probes")
+	scanCmd.Flags().IntVar(&flagDiscoveryConcurrency, "discovery-concurrency", 0,
+		"Max concurrent host discovery probes (0 = use --concurrency)")
 	scanCmd.Flags().BoolVarP(&flagBanners, "banners", "b", false,
 		"Attempt banner grabbing on open ports")
 	scanCmd.Flags().BoolVar(&flagPlain, "plain", false,
@@ -62,12 +65,13 @@ func runScan(cmd *cobra.Command, args []string) error {
 	subnet := args[0]
 
 	opts := models.ScanOptions{
-		Subnet:      subnet,
-		Ports:       flagPorts,
-		Timeout:     time.Duration(flagTimeout) * time.Millisecond,
-		Concurrency: flagConcurrency,
-		GrabBanners: flagBanners,
-		AllAlive:    flagAllAlive,
+		Subnet:               subnet,
+		Ports:                flagPorts,
+		Timeout:              time.Duration(flagTimeout) * time.Millisecond,
+		Concurrency:          flagConcurrency,
+		DiscoveryConcurrency: flagDiscoveryConcurrency,
+		GrabBanners:          flagBanners,
+		AllAlive:             flagAllAlive,
 	}
 	if len(opts.Ports) == 0 {
 		opts.Ports = models.CommonPorts
