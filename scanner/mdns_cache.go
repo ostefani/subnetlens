@@ -13,7 +13,7 @@ func newMDNSCache() *mdnsCache {
 	}
 }
 
-func (c *mdnsCache) get(ip string) (string, bool) {
+func (c *mdnsCache) LookupName(ip string) (string, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -21,7 +21,7 @@ func (c *mdnsCache) get(ip string) (string, bool) {
 	return name, ok
 }
 
-func (c *mdnsCache) set(ip, name string) {
+func (c *mdnsCache) StoreName(ip, name string) {
 	if name == "" {
 		return
 	}

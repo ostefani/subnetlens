@@ -32,8 +32,8 @@ func DiscoverHosts(
 	ctx context.Context,
 	opts models.ScanOptions,
 	progress func(done, total int),
-	cache *mdnsCache,
-	icmpScanner *ICMPScanner,
+	cache nameCache,
+	icmpScanner icmpProber,
 	arpCache *ARPCache,
 	socketLimiter *socketLimiter,
 ) <-chan HostEvent {
@@ -289,8 +289,8 @@ func probeHostSmart(
 	ctx context.Context,
 	ip string,
 	opts models.ScanOptions,
-	cache *mdnsCache,
-	icmpScanner *ICMPScanner,
+	cache nameCache,
+	icmpScanner icmpProber,
 	arpCache *ARPCache,
 	socketLimiter *socketLimiter,
 ) []hostUpdate {
@@ -341,7 +341,7 @@ func livenessProbe(
 	ctx context.Context,
 	ip string,
 	opts models.ScanOptions,
-	icmpScanner *ICMPScanner,
+	icmpScanner icmpProber,
 	limiter *socketLimiter,
 ) (bool, time.Duration, string) {
 	if icmpScanner != nil {
@@ -408,7 +408,7 @@ func expandCIDRSpec(target string) (targetSpec, error) {
 	return rangeSpec(start, end, skipNetworkBroadcast)
 }
 
-func preheatSubnet(ctx context.Context, ips iter.Seq[string], total int, icmpScanner *ICMPScanner) {
+func preheatSubnet(ctx context.Context, ips iter.Seq[string], total int, icmpScanner icmpProber) {
 	if icmpScanner == nil {
 		debugLog("discovery", "preheat skipped: ICMP unavailable")
 		return

@@ -20,28 +20,25 @@ func runScanCmd(opts models.ScanOptions, socketBudget int, hostCh chan *models.H
 		var finalTotal atomic.Int64
 		var lastUpdate time.Time
 
-		eng := &scanner.Engine{
-			Opts:         opts,
-			SocketBudget: socketBudget,
-			OnHost: func(h *models.Host) {
-				hostCh <- h
+		eng := scanner.NewEngine(opts, socketBudget)
+		eng.OnHost = func(h *models.Host) {
+			hostCh <- h
 
-			},
+		}
 
-			OnProgress: func(done, total int) {
-				finalDone.Store(int64(done))
-				finalTotal.Store(int64(total))
+		eng.OnProgress = func(done, total int) {
+			finalDone.Store(int64(done))
+			finalTotal.Store(int64(total))
 
-				now := time.Now()
-				// Only send a UI update every 50ms (20fps) or if it's 100% complete
-				if done >= total || now.Sub(lastUpdate) > 50*time.Millisecond {
-					select {
-					case progCh <- [2]int{done, total}:
-						lastUpdate = now
-					default:
-					}
+			now := time.Now()
+			// Only send a UI update every 50ms (20fps) or if it's 100% complete
+			if done >= total || now.Sub(lastUpdate) > 50*time.Millisecond {
+				select {
+				case progCh <- [2]int{done, total}:
+					lastUpdate = now
+				default:
 				}
-			},
+			}
 		}
 		result := eng.Run(ctx)
 		return scanDoneMsg{
