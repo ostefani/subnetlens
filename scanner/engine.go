@@ -13,11 +13,38 @@ type Engine struct {
 	SocketBudget int
 	OnHost       func(h *models.Host)  // called when a host is ready or later updated
 	OnProgress   func(done, total int) // called after each ping probe in discovery
+	deps         engineDependencies
+}
+
+// NewEngine constructs a production-ready engine with the default scanner
+// collaborators wired in.
+func NewEngine(opts models.ScanOptions, socketBudget int) *Engine {
+	return &Engine{
+		Opts:         opts,
+		SocketBudget: socketBudget,
+		deps: engineDependencies{
+			ouiLoader: ouiLoaderFunc(LoadOUICSV),
+			icmpFactory: icmpFactoryFunc(func() (icmpProber, error) {
+				return NewICMPScanner()
+			}),
+			passiveMDNSListener: passiveMDNSListenerFunc(func(ctx context.Context) nameCache {
+				return startPassiveMDNSListener(ctx)
+			}),
+			activeARPSweeper: activeARPSweeperFunc(startActiveARPSweep),
+			targetExpander:   targetExpanderFunc(expandTargets),
+			subnetPreheater:  subnetPreheaterFunc(preheatSubnet),
+			hostDiscoverer:   hostDiscovererFunc(DiscoverHosts),
+			portScanner:      portScannerFunc(ScanPorts),
+			hostEnricher:     hostEnricherFunc(EnrichHost),
+			osDetector:       osDetectorFunc(DetectOS),
+		},
+	}
 }
 
 func (e *Engine) Run(ctx context.Context) *models.ScanResult {
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	deps := e.deps
 
 	socketLimiter := newSocketLimiter(e.SocketBudget)
 
@@ -26,29 +53,29 @@ func (e *Engine) Run(ctx context.Context) *models.ScanResult {
 		StartedAt: time.Now(),
 	}
 
-	if err := LoadOUICSV(); err != nil {
+	if err := deps.ouiLoader.LoadOUICSV(); err != nil {
 		debugLog("engine", "expandTargets error: %v", err)
 	}
 
-	icmpScanner, err := NewICMPScanner()
+	icmpScanner, err := deps.icmpFactory.NewICMPScanner()
 	if err == nil {
 		defer icmpScanner.Close()
 	}
 
-	cache := startPassiveMDNSListener(runCtx)
+	cache := deps.passiveMDNSListener.Start(runCtx)
 	arpCache := &ARPCache{}
 
-	startActiveARPSweep(runCtx, e.Opts.Subnet, arpCache)
+	deps.activeARPSweeper.Start(runCtx, e.Opts.Subnet, arpCache)
 
-	targets, err := expandTargets(e.Opts.Subnet)
+	targets, err := deps.targetExpander.Expand(e.Opts.Subnet)
 	if err != nil {
 		debugLog("engine", "expandTargets error: %v", err)
 	} else {
 		debugLog("engine", "expandTargets")
-		preheatSubnet(runCtx, targets.seq, targets.total, icmpScanner)
+		deps.subnetPreheater.Preheat(runCtx, targets.seq, targets.total, icmpScanner)
 	}
 
-	eventCh := DiscoverHosts(runCtx, e.Opts, e.OnProgress, cache, icmpScanner, arpCache, socketLimiter)
+	eventCh := deps.hostDiscoverer.Discover(runCtx, e.Opts, e.OnProgress, cache, icmpScanner, arpCache, socketLimiter)
 
 	globalSem := make(chan struct{}, e.Opts.ScanConcurrencyLimit())
 	var scanWG sync.WaitGroup
@@ -79,11 +106,11 @@ func (e *Engine) Run(ctx context.Context) *models.ScanResult {
 				defer scanWG.Done()
 				defer close(ready)
 
-				ScanPorts(runCtx, scannedHost, e.Opts, globalSem, socketLimiter)
-				EnrichHost(scannedHost, cache, arpCache)
+				deps.portScanner.Scan(runCtx, scannedHost, e.Opts, globalSem, socketLimiter)
+				deps.hostEnricher.Enrich(scannedHost, cache, arpCache)
 
 				snapshot := scannedHost.Snapshot()
-				detectedOS, detectedDevice := DetectOS(snapshot.IP, snapshot.OpenPorts, e.Opts.Timeout)
+				detectedOS, detectedDevice := deps.osDetector.Detect(snapshot.IP, snapshot.OpenPorts, e.Opts.Timeout)
 				scannedHost.SetOS(detectedOS)
 				scannedHost.SetDeviceIfEmpty(detectedDevice)
 
@@ -97,7 +124,7 @@ func (e *Engine) Run(ctx context.Context) *models.ScanResult {
 				continue
 			}
 
-			EnrichHost(event.Host, cache, arpCache)
+			deps.hostEnricher.Enrich(event.Host, cache, arpCache)
 
 			ready, ok := hostReady[ip]
 			if !ok {

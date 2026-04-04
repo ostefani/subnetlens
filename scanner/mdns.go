@@ -8,9 +8,9 @@ import (
 	"time"
 )
 
-func resolveHostname(ctx context.Context, ip string, cache *mdnsCache, socketLimiter *socketLimiter) resolveResult {
+func resolveHostname(ctx context.Context, ip string, cache nameCache, socketLimiter *socketLimiter) resolveResult {
 	if cache != nil {
-		if name, ok := cache.get(ip); ok && name != "" {
+		if name, ok := cache.LookupName(ip); ok && name != "" {
 			return resolveResult{name: name}
 		}
 	}
@@ -18,7 +18,7 @@ func resolveHostname(ctx context.Context, ip string, cache *mdnsCache, socketLim
 	start := time.Now()
 	if name := resolveMDNS(ctx, ip, socketLimiter); name != "" && name != ip {
 		if cache != nil {
-			cache.set(ip, name)
+			cache.StoreName(ip, name)
 		}
 		return resolveResult{name: name, latency: time.Since(start)}
 	}
@@ -26,7 +26,7 @@ func resolveHostname(ctx context.Context, ip string, cache *mdnsCache, socketLim
 	start = time.Now()
 	if name := probeNBNS(ctx, ip, socketLimiter); name != "" {
 		if cache != nil {
-			cache.set(ip, name)
+			cache.StoreName(ip, name)
 		}
 		return resolveResult{name: name, latency: time.Since(start)}
 	}
@@ -34,7 +34,7 @@ func resolveHostname(ctx context.Context, ip string, cache *mdnsCache, socketLim
 	start = time.Now()
 	if name := probePTR(ctx, ip, socketLimiter); name != "" && name != ip {
 		if cache != nil {
-			cache.set(ip, name)
+			cache.StoreName(ip, name)
 		}
 		return resolveResult{name: name, latency: time.Since(start)}
 	}

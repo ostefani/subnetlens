@@ -13,59 +13,58 @@ import (
 // startPassiveMDNSListener opens one SO_REUSEPORT socket, joins the
 // multicast group, and fills cache as devices broadcast A records.
 func startPassiveMDNSListener(ctx context.Context) *mdnsCache {
-    cache := newMDNSCache()
+	cache := newMDNSCache()
 
-    conn, err := newMDNSSocket() // same SO_REUSEPORT helper, platform-split
-    if err != nil {
-        debugLog("mdns", "passive listener unavailable: %v", err)
-        return cache
-    }
+	conn, err := newMDNSSocket()
+	if err != nil {
+		debugLog("mdns", "passive listener unavailable: %v", err)
+		return cache
+	}
 
-    pc := ipv4.NewPacketConn(conn)
-    ifaces, err := net.Interfaces()
+	pc := ipv4.NewPacketConn(conn)
+	ifaces, err := net.Interfaces()
 
 	if err != nil {
 		debugLog("mdns", "failed to list interfaces: %v", err)
 		return cache
 	}
-    
+
 	for _, iface := range ifaces {
-        if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
-            continue
-        }
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
 
 		if err := pc.JoinGroup(&iface, &net.UDPAddr{IP: net.ParseIP("224.0.0.251")}); err != nil {
 			debugLog("mdns", "join group failed on %s: %v", iface.Name, err)
 			continue
 		}
-    }
+	}
 
-    go func() {
-        defer conn.Close()
-        buf := make([]byte, 1500)
-        for {
-            select {
-            case <-ctx.Done():
-                return
-            default:
-            }
-            conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-            n, _, err := conn.ReadFrom(buf)
-            if err != nil {
-                if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-                    continue
-                }
-                return
-            }
-            for ip, name := range parseARecords(buf[:n]) {
-                cache.set(ip, name)
-            }
-        }
-    }()
+	go func() {
+		defer conn.Close()
+		buf := make([]byte, 1500)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+			n, _, err := conn.ReadFrom(buf)
+			if err != nil {
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					continue
+				}
+				return
+			}
+			for ip, name := range parseARecords(buf[:n]) {
+				cache.StoreName(ip, name)
+			}
+		}
+	}()
 
-    return cache
+	return cache
 }
-
 
 // Scans all RR sections of a raw mDNS packet and returns
 func parseARecords(data []byte) map[string]string {
@@ -109,7 +108,7 @@ func parseARecords(data []byte) map[string]string {
 		}
 		if rrType == 1 && rdlength == 4 {
 			ip := net.IP(data[offset : offset+4]).String()
-			hostname:= normalizeMDNSName(name)
+			hostname := normalizeMDNSName(name)
 
 			if hostname != "" && ip != "" {
 				result[ip] = hostname
@@ -125,7 +124,9 @@ func readDNSName(data []byte, offset int) (string, int, error) {
 	originalOffset := offset
 	jumped := false
 	for {
-		if offset >= len(data) { return "", 0, fmt.Errorf("EOF") }
+		if offset >= len(data) {
+			return "", 0, fmt.Errorf("EOF")
+		}
 		l := int(data[offset])
 		if l == 0 {
 			offset++
@@ -133,7 +134,9 @@ func readDNSName(data []byte, offset int) (string, int, error) {
 		}
 
 		if l&0xC0 == 0xC0 {
-			if offset+1 >= len(data) { return "", 0, fmt.Errorf("EOF") }
+			if offset+1 >= len(data) {
+				return "", 0, fmt.Errorf("EOF")
+			}
 			ptr := int(data[offset]&0x3F)<<8 | int(data[offset+1])
 			if !jumped {
 				originalOffset = offset + 2
@@ -143,7 +146,9 @@ func readDNSName(data []byte, offset int) (string, int, error) {
 			continue
 		}
 		offset++
-		if offset+l > len(data) { return "", 0, fmt.Errorf("EOF") }
+		if offset+l > len(data) {
+			return "", 0, fmt.Errorf("EOF")
+		}
 		parts = append(parts, string(data[offset:offset+l]))
 		offset += l
 	}

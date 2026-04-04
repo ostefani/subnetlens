@@ -6,7 +6,7 @@ import (
 	"github.com/ostefani/subnetlens/models"
 )
 
-func EnrichHost(h *models.Host, cache *mdnsCache, arp *ARPCache) {
+func EnrichHost(h *models.Host, cache nameCache, arp *ARPCache) {
 	if h == nil {
 		return
 	}
@@ -24,7 +24,7 @@ func EnrichHost(h *models.Host, cache *mdnsCache, arp *ARPCache) {
 	}
 
 	if cache != nil && (snapshot.Hostname == "" || snapshot.Hostname == snapshot.IP) {
-		if name, ok := cache.get(snapshot.IP); ok {
+		if name, ok := cache.LookupName(snapshot.IP); ok {
 			h.SetHostnameIfEmptyOrIP(name)
 		}
 	}

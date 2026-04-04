@@ -1,6 +1,6 @@
 # ✧ SubnetLens ✧
 
-![Go Version](https://img.shields.io/badge/go-1.26-blue)
+![Go Version](https://img.shields.io/badge/go-1.25-blue)
 ![CLI](https://img.shields.io/badge/type-CLI-informational)
 ![Interface](https://img.shields.io/badge/type-TUI-informational)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -75,6 +75,21 @@ sudo SLENS_DEBUG=1 ./subnetlens scan <target> --plain 2>debug.log
 cat debug.log
 ```
 
+### Testing
+
+```bash
+go test ./...
+go test -race ./...
+```
+
+The current test suite includes regression coverage for:
+
+- `models.Host` sanitization, concurrent mutation, snapshot safety, and scan option defaults
+- host registry merge behavior for late ARP updates and duplicate events
+- engine coordination, so pre-ready host updates do not emit premature callbacks, and preheating is skipped when target expansion fails
+- scanner resource planning, resolver socket accounting, and local discovery helpers
+- TUI viewport, batching, cached rendering, and local-machine presentation
+
 ### Update dependencies
 
 ```bash
@@ -148,12 +163,12 @@ subnetlens /
 │   └── root.go           # Cobra CLI commands
 ├── scanner/
 │   ├── arp.go
-|   ├── discovery.go
+│   ├── discovery.go
 │   ├── engine.go
 │   ├── helpers.go
 │   ├── icmp.go
 │   ├── osdetect.go
-│   └── oui.csv        # is not included in the repo, download from https://regauth.standards.ieee.org if building locally
+│   └── oui.csv           # bundled IEEE OUI data used for vendor resolution
 ├── models/
 │   └── models.go
 └── ui/
@@ -166,7 +181,7 @@ subnetlens /
 - [x] ARP-based host discovery (requires raw sockets / root)
 - [x] MAC address vendor lookup
 - [x] mDNS listening
-- [ ] Add tests
+- [x] Add tests
 - [ ] Scan profiles: `--all-alive | --all`
 - [ ] UDP port scanning
 - [ ] JSON / CSV export (`--output result.json`)
