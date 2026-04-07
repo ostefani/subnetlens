@@ -24,8 +24,8 @@ func EnrichHost(h *models.Host, cache nameCache, arp *ARPCache) {
 	}
 
 	if cache != nil && (snapshot.Hostname == "" || snapshot.Hostname == snapshot.IP) {
-		if name, ok := cache.LookupName(snapshot.IP); ok {
-			h.SetHostnameIfEmptyOrIP(name)
+		if res, ok := cache.LookupName(snapshot.IP); ok {
+			h.SetHostnameIfEmptyOrIP(res.name)
 		}
 	}
 }

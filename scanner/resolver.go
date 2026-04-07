@@ -7,11 +7,14 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ostefani/subnetlens/models"
 )
 
 type resolveResult struct {
 	name    string
 	latency time.Duration
+	source  models.HostSource
 }
 
 type observedConn struct {

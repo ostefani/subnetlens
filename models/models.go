@@ -33,6 +33,19 @@ const (
 	PortFiltered PortState = "filtered"
 )
 
+type HostSource string
+
+const (
+	HostSourceARP   HostSource = "arp"
+	HostSourceMDNS  HostSource = "mdns"
+	HostSourceNBNS  HostSource = "nbns"
+	HostSourcePTR   HostSource = "ptr"
+	HostSourceICMP  HostSource = "icmp"
+	HostSourceTCP   HostSource = "tcp"
+	HostSourceSelf  HostSource = "self"
+	HostSourceMixed HostSource = "mixed"
+)
+
 type Host struct {
 	mu sync.RWMutex
 
@@ -47,7 +60,7 @@ type Host struct {
 
 	SeenAt    time.Time
 	UpdatedAt time.Time
-	Source    string // "arp", "mdns", "icmp", "tcp", "mixed"
+	Source    HostSource
 
 	alive bool
 }
@@ -63,7 +76,7 @@ type HostSnapshot struct {
 	Device    string
 	SeenAt    time.Time
 	UpdatedAt time.Time
-	Source    string
+	Source    HostSource
 	Alive     bool
 }
 
@@ -113,7 +126,7 @@ func (h *Host) Snapshot() HostSnapshot {
 	return snapshot
 }
 
-func (h *Host) MarkSeen(source string) bool {
+func (h *Host) MarkSeen(source HostSource) bool {
 	if h == nil || source == "" {
 		return false
 	}
@@ -124,7 +137,7 @@ func (h *Host) MarkSeen(source string) bool {
 	return h.markSeenLocked(source)
 }
 
-func (h *Host) markSeenLocked(source string) bool {
+func (h *Host) markSeenLocked(source HostSource) bool {
 	now := time.Now()
 	changed := false
 	if h.SeenAt.IsZero() {
@@ -135,8 +148,8 @@ func (h *Host) markSeenLocked(source string) bool {
 	if h.Source == "" {
 		h.Source = source
 		changed = true
-	} else if h.Source != source && h.Source != "mixed" {
-		h.Source = "mixed"
+	} else if h.Source != source && h.Source != HostSourceMixed {
+		h.Source = HostSourceMixed
 		changed = true
 	}
 

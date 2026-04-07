@@ -9,8 +9,8 @@ import (
 )
 
 type nameCache interface {
-	LookupName(ip string) (string, bool)
-	StoreName(ip, name string)
+	LookupName(ip string) (resolveResult, bool)
+	StoreName(ip, name string, source models.HostSource)
 }
 
 type icmpProber interface {

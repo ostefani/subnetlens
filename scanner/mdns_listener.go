@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ostefani/subnetlens/models"
 	"golang.org/x/net/ipv4"
 )
 
@@ -58,7 +59,7 @@ func startPassiveMDNSListener(ctx context.Context) *mdnsCache {
 				return
 			}
 			for ip, name := range parseARecords(buf[:n]) {
-				cache.StoreName(ip, name)
+				cache.StoreName(ip, name, models.HostSourceMDNS)
 			}
 		}
 	}()

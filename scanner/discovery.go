@@ -154,7 +154,7 @@ func localHostUpdates(info LocalDiscoveryInfo) []hostUpdate {
 		mac:    info.MAC,
 		name:   info.Hostname,
 		alive:  true,
-		seenBy: "self",
+		seenBy: models.HostSourceSelf,
 	}}
 }
 
@@ -301,7 +301,7 @@ func probeHostSmart(
 				ip:     ip,
 				mac:    mac,
 				alive:  true,
-				seenBy: "arp",
+				seenBy: models.HostSourceARP,
 			})
 		}
 	}
@@ -317,7 +317,7 @@ func probeHostSmart(
 			ip:     ip,
 			name:   res.name,
 			alive:  res.latency > 0,
-			seenBy: "mdns",
+			seenBy: res.source,
 		})
 	}
 
@@ -343,12 +343,12 @@ func livenessProbe(
 	opts models.ScanOptions,
 	icmpScanner icmpProber,
 	limiter *socketLimiter,
-) (bool, time.Duration, string) {
+) (bool, time.Duration, models.HostSource) {
 	if icmpScanner != nil {
 		for i := 0; i < 2; i++ {
 			alive, latency, err := icmpScanner.Probe(ctx, ip, opts.Timeout)
 			if err == nil && alive {
-				return true, latency, "icmp"
+				return true, latency, models.HostSourceICMP
 			}
 		}
 	}
@@ -365,7 +365,7 @@ func livenessProbe(
 		return false, 0, ""
 	}
 
-	return true, latency, "tcp"
+	return true, latency, models.HostSourceTCP
 }
 
 func expandTargets(target string) (targetSpec, error) {
@@ -575,7 +575,7 @@ func watchARP(
 				ip:     ip,
 				mac:    mac,
 				alive:  true,
-				seenBy: "arp",
+				seenBy: models.HostSourceARP,
 			}) {
 				return
 			}

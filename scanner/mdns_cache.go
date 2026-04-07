@@ -1,27 +1,31 @@
 package scanner
 
-import "sync"
+import (
+	"sync"
+
+	"github.com/ostefani/subnetlens/models"
+)
 
 type mdnsCache struct {
 	mu    sync.RWMutex
-	names map[string]string
+	names map[string]resolveResult
 }
 
 func newMDNSCache() *mdnsCache {
 	return &mdnsCache{
-		names: make(map[string]string),
+		names: make(map[string]resolveResult),
 	}
 }
 
-func (c *mdnsCache) LookupName(ip string) (string, bool) {
+func (c *mdnsCache) LookupName(ip string) (resolveResult, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	name, ok := c.names[ip]
-	return name, ok
+	res, ok := c.names[ip]
+	return res, ok
 }
 
-func (c *mdnsCache) StoreName(ip, name string) {
+func (c *mdnsCache) StoreName(ip, name string, source models.HostSource) {
 	if name == "" {
 		return
 	}
@@ -30,6 +34,6 @@ func (c *mdnsCache) StoreName(ip, name string) {
 	defer c.mu.Unlock()
 
 	if _, exists := c.names[ip]; !exists {
-		c.names[ip] = name
+		c.names[ip] = resolveResult{name: name, source: source}
 	}
 }

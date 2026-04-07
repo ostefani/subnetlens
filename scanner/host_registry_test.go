@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/ostefani/subnetlens/models"
 )
 
 func TestHostRegistryMergesLateARPWithoutReemit(t *testing.T) {
@@ -23,7 +25,7 @@ func TestHostRegistryMergesLateARPWithoutReemit(t *testing.T) {
 		ip:      "192.168.1.10",
 		alive:   true,
 		latency: 10 * time.Millisecond,
-		seenBy:  "icmp",
+		seenBy:  models.HostSourceICMP,
 	}
 
 	discovered, ok := <-out
@@ -56,7 +58,7 @@ func TestHostRegistryMergesLateARPWithoutReemit(t *testing.T) {
 		ip:     "192.168.1.10",
 		mac:    "00:1c:b3:00:00:01",
 		alive:  true,
-		seenBy: "arp",
+		seenBy: models.HostSourceARP,
 	}
 
 	updated, ok := <-out
@@ -77,7 +79,7 @@ func TestHostRegistryMergesLateARPWithoutReemit(t *testing.T) {
 	if snapshot.MAC != "00:1c:b3:00:00:01" {
 		t.Fatalf("expected late ARP to update MAC, got %q", snapshot.MAC)
 	}
-	if snapshot.Source != "mixed" {
+	if snapshot.Source != models.HostSourceMixed {
 		t.Fatalf("expected merged source to be mixed, got %q", snapshot.Source)
 	}
 
@@ -109,7 +111,7 @@ func TestHostRegistrySkipsDuplicateUpdates(t *testing.T) {
 		ip:     "192.168.1.20",
 		mac:    "00:1c:b3:00:00:02",
 		alive:  true,
-		seenBy: "arp",
+		seenBy: models.HostSourceARP,
 	}
 
 	event := <-out
@@ -121,7 +123,7 @@ func TestHostRegistrySkipsDuplicateUpdates(t *testing.T) {
 		ip:     "192.168.1.20",
 		mac:    "00:1c:b3:00:00:02",
 		alive:  true,
-		seenBy: "arp",
+		seenBy: models.HostSourceARP,
 	}
 	close(registry.updates)
 	<-done
