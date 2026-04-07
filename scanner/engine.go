@@ -25,7 +25,11 @@ func NewEngine(opts models.ScanOptions, socketBudget int) *Engine {
 		deps: engineDependencies{
 			ouiLoader: ouiLoaderFunc(LoadOUICSV),
 			icmpFactory: icmpFactoryFunc(func() (icmpProber, error) {
-				return NewICMPScanner()
+				s, err := NewICMPScanner()
+				if err != nil {
+					return nil, err
+				}
+				return s, nil
 			}),
 			passiveMDNSListener: passiveMDNSListenerFunc(func(ctx context.Context) nameCache {
 				return startPassiveMDNSListener(ctx)
@@ -58,7 +62,9 @@ func (e *Engine) Run(ctx context.Context) *models.ScanResult {
 	}
 
 	icmpScanner, err := deps.icmpFactory.NewICMPScanner()
-	if err == nil {
+	if err != nil {
+		icmpScanner = nil
+	} else {
 		defer icmpScanner.Close()
 	}
 
