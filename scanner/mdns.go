@@ -6,37 +6,39 @@ import (
 	"net"
 	"strings"
 	"time"
+
+	"github.com/ostefani/subnetlens/models"
 )
 
 func resolveHostname(ctx context.Context, ip string, cache nameCache, socketLimiter *socketLimiter) resolveResult {
 	if cache != nil {
-		if name, ok := cache.LookupName(ip); ok && name != "" {
-			return resolveResult{name: name}
+		if res, ok := cache.LookupName(ip); ok && res.name != "" {
+			return res
 		}
 	}
 
 	start := time.Now()
 	if name := resolveMDNS(ctx, ip, socketLimiter); name != "" && name != ip {
 		if cache != nil {
-			cache.StoreName(ip, name)
+			cache.StoreName(ip, name, models.HostSourceMDNS)
 		}
-		return resolveResult{name: name, latency: time.Since(start)}
+		return resolveResult{name: name, latency: time.Since(start), source: models.HostSourceMDNS}
 	}
 
 	start = time.Now()
 	if name := probeNBNS(ctx, ip, socketLimiter); name != "" {
 		if cache != nil {
-			cache.StoreName(ip, name)
+			cache.StoreName(ip, name, models.HostSourceNBNS)
 		}
-		return resolveResult{name: name, latency: time.Since(start)}
+		return resolveResult{name: name, latency: time.Since(start), source: models.HostSourceNBNS}
 	}
 
 	start = time.Now()
 	if name := probePTR(ctx, ip, socketLimiter); name != "" && name != ip {
 		if cache != nil {
-			cache.StoreName(ip, name)
+			cache.StoreName(ip, name, models.HostSourcePTR)
 		}
-		return resolveResult{name: name, latency: time.Since(start)}
+		return resolveResult{name: name, latency: time.Since(start), source: models.HostSourcePTR}
 	}
 
 	return resolveResult{}

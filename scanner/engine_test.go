@@ -52,20 +52,20 @@ func (m *stubICMPFactory) Calls() int {
 
 type stubNameCache struct {
 	mu      sync.Mutex
-	names   map[string]string
+	names   map[string]resolveResult
 	lookups int
 	stores  int
 }
 
-func (m *stubNameCache) LookupName(ip string) (string, bool) {
+func (m *stubNameCache) LookupName(ip string) (resolveResult, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.lookups++
-	name, ok := m.names[ip]
-	return name, ok
+	res, ok := m.names[ip]
+	return res, ok
 }
 
-func (m *stubNameCache) StoreName(ip, name string) {
+func (m *stubNameCache) StoreName(ip, name string, source models.HostSource) {
 	if name == "" {
 		return
 	}
@@ -74,9 +74,9 @@ func (m *stubNameCache) StoreName(ip, name string) {
 	defer m.mu.Unlock()
 	m.stores++
 	if m.names == nil {
-		m.names = make(map[string]string)
+		m.names = make(map[string]resolveResult)
 	}
-	m.names[ip] = name
+	m.names[ip] = resolveResult{name: name, source: source}
 }
 
 type stubPassiveMDNSListener struct {

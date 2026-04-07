@@ -98,7 +98,7 @@ func TestHostConcurrentMutationAndSnapshot(t *testing.T) {
 			host.SetOS("Linux")
 			host.SetLatency(12 * time.Millisecond)
 			host.SetAlive(true)
-			host.MarkSeen("icmp")
+			host.MarkSeen(HostSourceICMP)
 			host.SetOpenPorts(sourcePorts)
 		}
 	}
@@ -157,7 +157,7 @@ func TestHostConcurrentMutationAndSnapshot(t *testing.T) {
 	if !snapshot.Alive {
 		t.Fatal("expected host to remain alive")
 	}
-	if snapshot.Source != "icmp" {
+	if snapshot.Source != HostSourceICMP {
 		t.Fatalf("expected stable source, got %q", snapshot.Source)
 	}
 	if snapshot.SeenAt.IsZero() || snapshot.UpdatedAt.IsZero() {

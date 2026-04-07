@@ -1,6 +1,10 @@
 package scanner
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/ostefani/subnetlens/models"
+)
 
 func TestLocalHostUpdatesIncludesSelfWhenInScanRange(t *testing.T) {
 	info := LocalDiscoveryInfo{
@@ -28,7 +32,7 @@ func TestLocalHostUpdatesIncludesSelfWhenInScanRange(t *testing.T) {
 	if !update.alive {
 		t.Fatal("expected local host update to be alive")
 	}
-	if update.seenBy != "self" {
+	if update.seenBy != models.HostSourceSelf {
 		t.Fatalf("expected seenBy to be self, got %q", update.seenBy)
 	}
 }

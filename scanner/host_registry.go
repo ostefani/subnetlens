@@ -25,7 +25,7 @@ type hostUpdate struct {
 	name    string
 	alive   bool
 	latency time.Duration
-	seenBy  string
+	seenBy  models.HostSource
 }
 
 type HostRegistry struct {
