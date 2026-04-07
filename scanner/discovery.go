@@ -316,7 +316,7 @@ func probeHostSmart(
 		updates = append(updates, hostUpdate{
 			ip:     ip,
 			name:   res.name,
-			alive:  res.latency > 0,
+			alive:  res.provesLiveness,
 			seenBy: res.source,
 		})
 	}

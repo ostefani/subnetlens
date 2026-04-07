@@ -22,7 +22,12 @@ func resolveHostname(ctx context.Context, ip string, cache nameCache, socketLimi
 		if cache != nil {
 			cache.StoreName(ip, name, models.HostSourceMDNS)
 		}
-		return resolveResult{name: name, latency: time.Since(start), source: models.HostSourceMDNS}
+		return resolveResult{
+			name:           name,
+			latency:        time.Since(start),
+			source:         models.HostSourceMDNS,
+			provesLiveness: true,
+		}
 	}
 
 	start = time.Now()
@@ -30,7 +35,12 @@ func resolveHostname(ctx context.Context, ip string, cache nameCache, socketLimi
 		if cache != nil {
 			cache.StoreName(ip, name, models.HostSourceNBNS)
 		}
-		return resolveResult{name: name, latency: time.Since(start), source: models.HostSourceNBNS}
+		return resolveResult{
+			name:           name,
+			latency:        time.Since(start),
+			source:         models.HostSourceNBNS,
+			provesLiveness: true,
+		}
 	}
 
 	start = time.Now()
@@ -38,7 +48,11 @@ func resolveHostname(ctx context.Context, ip string, cache nameCache, socketLimi
 		if cache != nil {
 			cache.StoreName(ip, name, models.HostSourcePTR)
 		}
-		return resolveResult{name: name, latency: time.Since(start), source: models.HostSourcePTR}
+		return resolveResult{
+			name:    name,
+			latency: time.Since(start),
+			source:  models.HostSourcePTR,
+		}
 	}
 
 	return resolveResult{}
