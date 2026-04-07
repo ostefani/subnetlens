@@ -182,7 +182,7 @@ subnetlens /
 - [x] MAC address vendor lookup
 - [x] mDNS listening
 - [x] Add tests
-- [ ] Scan profiles: `--all-alive | --all`
+- [x] Scan profiles: `--all-alive`
 - [ ] UDP port scanning
 - [ ] JSON / CSV export (`--output result.json`)
 - [ ] GUI with interactive network node graph
