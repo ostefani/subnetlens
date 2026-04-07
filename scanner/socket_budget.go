@@ -9,7 +9,6 @@ import (
 
 const (
 	reservedFileDescriptors = 64
-	discoverySocketCost     = 6
 )
 
 type resourcePlan struct {
@@ -42,7 +41,7 @@ func buildResourcePlan(opts models.ScanOptions, softLimit uint64, limitKnown boo
 
 	budget := socketBudgetForLimit(softLimit)
 	effectiveScan := min(requestedScan, max(1, budget))
-	effectiveDiscovery := min(requestedDiscovery, max(1, budget/discoverySocketCost))
+	effectiveDiscovery := min(requestedDiscovery, max(1, budget/discoverySocketEstimate()))
 
 	planned.Concurrency = effectiveScan
 	planned.DiscoveryConcurrency = effectiveDiscovery
@@ -78,7 +77,11 @@ func socketBudgetForLimit(softLimit uint64) int {
 }
 
 func estimatedSocketDemand(scanConcurrency, discoveryConcurrency int) int {
-	return scanConcurrency + discoveryConcurrency*discoverySocketCost
+	return scanConcurrency + discoveryConcurrency*discoverySocketEstimate()
+}
+
+func discoverySocketEstimate() int {
+	return len(tcpProbePorts) + 1
 }
 
 func resourceWarnings(

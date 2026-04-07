@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+var tcpProbePorts = []int{80, 443, 22, 445, 8080}
+
 // tcpProbe checks if ip is reachable by racing concurrent TCP connections
 // against a small set of well-known ports.
 func tcpProbe(
@@ -22,13 +24,12 @@ func tcpProbe(
 	probeCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	ports := []int{80, 443, 22, 445, 8080}
 	start := time.Now()
 
-	resultCh := make(chan time.Duration, len(ports))
+	resultCh := make(chan time.Duration, len(tcpProbePorts))
 
 	var wg sync.WaitGroup
-	for _, port := range ports {
+	for _, port := range tcpProbePorts {
 		wg.Add(1)
 		port := port
 
