@@ -116,7 +116,7 @@ func (e *Engine) Run(ctx context.Context) *models.ScanResult {
 				deps.hostEnricher.Enrich(scannedHost, cache, arpCache)
 
 				snapshot := scannedHost.Snapshot()
-				detectedOS, detectedDevice := deps.osDetector.Detect(snapshot.IP, snapshot.OpenPorts, e.Opts.Timeout)
+				detectedOS, detectedDevice := deps.osDetector.Detect(snapshot.OpenPorts)
 				scannedHost.SetOS(detectedOS)
 				scannedHost.SetDeviceIfEmpty(detectedDevice)
 
