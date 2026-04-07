@@ -258,7 +258,7 @@ type stubOSDetector struct {
 	device string
 }
 
-func (m *stubOSDetector) Detect(string, []models.Port, time.Duration) (string, string) {
+func (m *stubOSDetector) Detect([]models.Port) (string, string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.calls++

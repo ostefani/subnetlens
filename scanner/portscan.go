@@ -1,13 +1,16 @@
 package scanner
 
 import (
+	"bufio"
 	"context"
 	"crypto/tls"
 	"fmt"
 	"net"
+	"net/http"
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ostefani/subnetlens/internal/textutil"
 	"github.com/ostefani/subnetlens/models"
@@ -96,12 +99,8 @@ func probePort(ctx context.Context, ip string, portNum int, opts models.ScanOpti
 	port.State = models.PortOpen
 	port.Service = knownService(portNum)
 
-	if opts.GrabBanners {
-		if tlsPorts[portNum] {
-			port.Banner = grabTLSBanner(conn, ip, addr)
-		} else {
-			port.Banner = grabBanner(conn, portNum, addr)
-		}
+	if opts.GrabBanners || needsFingerprint(portNum) {
+		port.Fingerprint, port.Banner = collectPortEvidence(conn, ip, addr, portNum, opts.Timeout, opts.GrabBanners)
 	}
 
 	return port
@@ -115,11 +114,19 @@ var tlsPorts = map[int]bool{
 	8443: true, // HTTPS-Alt
 }
 
+var httpsFingerprintPorts = map[int]bool{
+	443:  true,
+	8443: true,
+}
+
+var httpFingerprintPorts = map[int]bool{
+	80:   true,
+	8080: true,
+}
+
 var httpProbe = []byte("HEAD / HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n")
 
 var clientProbes = map[int][]byte{
-	80:   httpProbe,
-	8080: httpProbe,
 	8888: httpProbe,
 	9200: httpProbe,
 	6379: []byte("PING\r\n"),
@@ -132,6 +139,39 @@ var clientProbes = map[int][]byte{
 		'p', 'o', 's', 't', 'g', 'r', 'e', 's', 0x00,
 		0x00,
 	},
+}
+
+func needsFingerprint(portNum int) bool {
+	switch portNum {
+	case 22, 80, 443, 8080, 8443:
+		return true
+	default:
+		return false
+	}
+}
+
+func collectPortEvidence(
+	conn net.Conn,
+	ip string,
+	addr string,
+	portNum int,
+	timeout time.Duration,
+	captureBanner bool,
+) (models.PortFingerprint, string) {
+	switch {
+	case tlsPorts[portNum]:
+		return grabTLSEvidence(conn, ip, addr, portNum, timeout, captureBanner)
+	case httpFingerprintPorts[portNum]:
+		server := readHTTPServerHeader(conn, ip, addr, timeout)
+		return models.PortFingerprint{HTTPServer: server}, bannerFromHTTPServer(server, captureBanner)
+	case portNum == 22:
+		greeting := readSSHGreeting(conn, addr, timeout)
+		return models.PortFingerprint{SSHGreeting: greeting}, bannerIfEnabled(greeting, captureBanner)
+	case captureBanner:
+		return models.PortFingerprint{}, grabBanner(conn, portNum, addr)
+	default:
+		return models.PortFingerprint{}, ""
+	}
 }
 
 func grabBanner(conn net.Conn, portNum int, addr string) string {
@@ -156,30 +196,88 @@ func grabBanner(conn net.Conn, portNum int, addr string) string {
 	return textutil.SanitizeInline(string(buf[:n]))
 }
 
-// grabTLSBanner upgrades conn to TLS and extracts identifying metadata from
-// the server certificate. It deliberately skips certificate verification
-// (InsecureSkipVerify) because scanner targets are often self-signed or use
-// internal CAs not trusted by the host OS.
-//
-// The returned banner form:
-//
-//	TLS: CN=example.com SANs=[www.example.com api.example.com] Org=Acme Corp
-func grabTLSBanner(conn net.Conn, ip, addr string) string {
+func readSSHGreeting(conn net.Conn, addr string, timeout time.Duration) string {
+	conn.SetReadDeadline(time.Now().Add(fingerprintTimeout(timeout)))
+
+	buf := make([]byte, 512)
+	n, err := conn.Read(buf)
+	debugLog("portscan", "readSSHGreeting addr=%s n=%d err=%v raw=%q", addr, n, err, string(buf[:n]))
+
+	if n == 0 {
+		return ""
+	}
+	return textutil.SanitizeInline(string(buf[:n]))
+}
+
+func readHTTPServerHeader(conn net.Conn, ip, addr string, timeout time.Duration) string {
+	conn.SetDeadline(time.Now().Add(fingerprintTimeout(timeout)))
+
+	req := fmt.Sprintf("HEAD / HTTP/1.0\r\nHost: %s\r\nConnection: close\r\n\r\n", ip)
+	if _, err := fmt.Fprint(conn, req); err != nil {
+		debugLog("portscan", "readHTTPServerHeader addr=%s write error: %v", addr, err)
+		return ""
+	}
+
+	resp, err := http.ReadResponse(bufio.NewReader(conn), &http.Request{Method: http.MethodHead})
+	if err != nil {
+		debugLog("portscan", "readHTTPServerHeader addr=%s parse error: %v", addr, err)
+		return ""
+	}
+	defer resp.Body.Close()
+
+	server := textutil.SanitizeInline(resp.Header.Get("Server"))
+	debugLog("portscan", "readHTTPServerHeader addr=%s server=%q", addr, server)
+	return server
+}
+
+// grabTLSEvidence upgrades conn to TLS, extracts identifying metadata from the
+// server certificate, and for HTTPS ports fetches the HTTP Server header over
+// that same TLS connection.
+func grabTLSEvidence(
+	conn net.Conn,
+	ip string,
+	addr string,
+	portNum int,
+	timeout time.Duration,
+	captureBanner bool,
+) (models.PortFingerprint, string) {
 	tlsConn := tls.Client(conn, &tls.Config{
 		InsecureSkipVerify: true, //nolint:gosec
 		ServerName:         ip,
 	})
 
-	tlsConn.SetDeadline(deadlineAfter(1500))
+	tlsConn.SetDeadline(time.Now().Add(fingerprintTimeout(timeout)))
 
 	if err := tlsConn.Handshake(); err != nil {
-		debugLog("portscan", "grabTLSBanner addr=%s handshake error: %v", addr, err)
-		return ""
+		debugLog("portscan", "grabTLSEvidence addr=%s handshake error: %v", addr, err)
+		return models.PortFingerprint{}, ""
 	}
 
-	state := tlsConn.ConnectionState()
+	fingerprint := models.PortFingerprint{
+		TLSSummary: tlsSummaryFromState(tlsConn.ConnectionState(), addr),
+	}
+
+	var parts []string
+	if fingerprint.TLSSummary != "" {
+		parts = append(parts, fingerprint.TLSSummary)
+	}
+	if httpsFingerprintPorts[portNum] {
+		fingerprint.HTTPServer = readHTTPServerHeader(tlsConn, ip, addr, timeout)
+		if banner := bannerFromHTTPServer(fingerprint.HTTPServer, true); banner != "" {
+			parts = append(parts, banner)
+		}
+	}
+
+	if !captureBanner {
+		return fingerprint, ""
+	}
+
+	return fingerprint, strings.Join(parts, " | ")
+}
+
+func tlsSummaryFromState(state tls.ConnectionState, addr string) string {
 	if len(state.PeerCertificates) == 0 {
-		debugLog("portscan", "grabTLSBanner addr=%s no peer certificates", addr)
+		debugLog("portscan", "tlsSummaryFromState addr=%s no peer certificates", addr)
 		return ""
 	}
 
@@ -197,13 +295,34 @@ func grabTLSBanner(conn net.Conn, ip, addr string) string {
 	}
 
 	if len(parts) == 0 {
-		debugLog("portscan", "grabTLSBanner addr=%s cert has no useful fields", addr)
+		debugLog("portscan", "tlsSummaryFromState addr=%s cert has no useful fields", addr)
 		return ""
 	}
 
 	banner := "TLS: " + strings.Join(parts, " ")
-	debugLog("portscan", "grabTLSBanner addr=%s banner=%q", addr, banner)
+	debugLog("portscan", "tlsSummaryFromState addr=%s banner=%q", addr, banner)
 	return banner
+}
+
+func bannerIfEnabled(value string, enabled bool) string {
+	if !enabled {
+		return ""
+	}
+	return value
+}
+
+func bannerFromHTTPServer(server string, enabled bool) string {
+	if !enabled || server == "" {
+		return ""
+	}
+	return "Server: " + server
+}
+
+func fingerprintTimeout(timeout time.Duration) time.Duration {
+	if timeout <= 0 {
+		return 500 * time.Millisecond
+	}
+	return timeout
 }
 
 // knownService maps well-known port numbers to service names.

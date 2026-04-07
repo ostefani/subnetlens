@@ -56,7 +56,7 @@ type hostEnricher interface {
 }
 
 type osDetector interface {
-	Detect(string, []models.Port, time.Duration) (string, string)
+	Detect([]models.Port) (string, string)
 }
 
 type engineDependencies struct {
@@ -140,10 +140,10 @@ func (f hostEnricherFunc) Enrich(host *models.Host, cache nameCache, arp *ARPCac
 	f(host, cache, arp)
 }
 
-type osDetectorFunc func(string, []models.Port, time.Duration) (string, string)
+type osDetectorFunc func([]models.Port) (string, string)
 
-func (f osDetectorFunc) Detect(ip string, ports []models.Port, timeout time.Duration) (string, string) {
-	return f(ip, ports, timeout)
+func (f osDetectorFunc) Detect(ports []models.Port) (string, string) {
+	return f(ports)
 }
 
 var (

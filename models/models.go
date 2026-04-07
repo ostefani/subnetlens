@@ -13,6 +13,16 @@ type Port struct {
 	State    PortState
 	Service  string
 	Banner   string
+
+	// Fingerprint stores low-noise scan-time evidence that classifiers can
+	// parse without needing to open new network connections.
+	Fingerprint PortFingerprint
+}
+
+type PortFingerprint struct {
+	SSHGreeting string
+	HTTPServer  string
+	TLSSummary  string
 }
 
 type PortState string
