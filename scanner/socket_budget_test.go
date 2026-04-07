@@ -23,7 +23,7 @@ func TestBuildResourcePlanWithoutSystemLimitKeepsNormalizedConcurrency(t *testin
 	}
 }
 
-func TestBuildResourcePlanClampsConcurrencyToBudget(t *testing.T) {
+func TestBuildResourcePlanKeepsRequestedConcurrencyWhenDemandExceedsBudget(t *testing.T) {
 	plan := buildResourcePlan(models.ScanOptions{
 		Concurrency:          100,
 		DiscoveryConcurrency: 50,
@@ -32,14 +32,14 @@ func TestBuildResourcePlanClampsConcurrencyToBudget(t *testing.T) {
 	if got := plan.socketBudget; got != 36 {
 		t.Fatalf("expected socket budget 36, got %d", got)
 	}
-	if got := plan.opts.Concurrency; got != 36 {
-		t.Fatalf("expected scan concurrency capped at 36, got %d", got)
+	if got := plan.opts.Concurrency; got != 100 {
+		t.Fatalf("expected scan concurrency to remain 100, got %d", got)
 	}
-	if got := plan.opts.DiscoveryConcurrency; got != 6 {
-		t.Fatalf("expected discovery concurrency capped at 6, got %d", got)
+	if got := plan.opts.DiscoveryConcurrency; got != 50 {
+		t.Fatalf("expected discovery concurrency to remain 50, got %d", got)
 	}
 	if len(plan.warnings) == 0 {
-		t.Fatal("expected warning when concurrency is clamped by the FD budget")
+		t.Fatal("expected warning when estimated socket demand exceeds the FD budget")
 	}
 }
 

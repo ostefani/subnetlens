@@ -40,11 +40,6 @@ func buildResourcePlan(opts models.ScanOptions, softLimit uint64, limitKnown boo
 	}
 
 	budget := socketBudgetForLimit(softLimit)
-	effectiveScan := min(requestedScan, max(1, budget))
-	effectiveDiscovery := min(requestedDiscovery, max(1, budget/discoverySocketEstimate()))
-
-	planned.Concurrency = effectiveScan
-	planned.DiscoveryConcurrency = effectiveDiscovery
 
 	return resourcePlan{
 		opts:         planned,
@@ -54,8 +49,6 @@ func buildResourcePlan(opts models.ScanOptions, softLimit uint64, limitKnown boo
 			budget,
 			requestedScan,
 			requestedDiscovery,
-			effectiveScan,
-			effectiveDiscovery,
 		),
 	}
 }
@@ -89,34 +82,19 @@ func resourceWarnings(
 	budget int,
 	requestedScan int,
 	requestedDiscovery int,
-	effectiveScan int,
-	effectiveDiscovery int,
 ) []string {
 	requestedDemand := estimatedSocketDemand(requestedScan, requestedDiscovery)
-	clamped := requestedScan != effectiveScan || requestedDiscovery != effectiveDiscovery
 
-	if !clamped && requestedDemand <= budget {
+	if requestedDemand <= budget {
 		return nil
 	}
 
-	if clamped {
-		return []string{fmt.Sprintf(
-			"Open-file soft limit %d leaves a shared socket budget of %d. Using scan concurrency %d/%d and discovery concurrency %d/%d; live socket opens are additionally queued at runtime to avoid EMFILE.",
-			softLimit,
-			budget,
-			effectiveScan,
-			requestedScan,
-			effectiveDiscovery,
-			requestedDiscovery,
-		)}
-	}
-
 	return []string{fmt.Sprintf(
-		"Open-file soft limit %d leaves a shared socket budget of %d. Requested scan=%d and discovery=%d can demand about %d sockets, so live socket opens will be queued at runtime to avoid EMFILE.",
+		"Open-file soft limit %d leaves a shared socket budget of %d. Requested scan=%d and discovery=%d can demand about %d sockets at peak, so live socket opens will be queued at runtime to avoid EMFILE.",
 		softLimit,
 		budget,
-		effectiveScan,
-		effectiveDiscovery,
+		requestedScan,
+		requestedDiscovery,
 		requestedDemand,
 	)}
 }
