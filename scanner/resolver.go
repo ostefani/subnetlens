@@ -12,9 +12,10 @@ import (
 )
 
 type resolveResult struct {
-	name    string
-	latency time.Duration
-	source  models.HostSource
+	name           string
+	latency        time.Duration
+	source         models.HostSource
+	provesLiveness bool
 }
 
 type observedConn struct {

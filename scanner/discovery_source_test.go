@@ -53,3 +53,42 @@ func TestProbeHostSmartPropagatesResolvedHostnameSource(t *testing.T) {
 		t.Fatalf("expected hostname source nbns, got %q", hostnameUpdate.seenBy)
 	}
 }
+
+func TestProbeHostSmartDoesNotTreatPTRNameAsLiveness(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	cache := &mdnsCache{
+		names: map[string]resolveResult{
+			"192.168.1.30": {
+				name:   "stale.example.internal",
+				source: models.HostSourcePTR,
+			},
+		},
+	}
+
+	updates := probeHostSmart(
+		ctx,
+		"192.168.1.30",
+		models.ScanOptions{Timeout: 50 * time.Millisecond},
+		cache,
+		nil,
+		nil,
+		nil,
+	)
+
+	if len(updates) != 1 {
+		t.Fatalf("expected 1 hostname-only update, got %d", len(updates))
+	}
+
+	update := updates[0]
+	if update.name != "stale.example.internal" {
+		t.Fatalf("expected PTR hostname update, got %+v", update)
+	}
+	if update.alive {
+		t.Fatalf("expected PTR hostname update to not mark host alive, got %+v", update)
+	}
+	if update.seenBy != models.HostSourcePTR {
+		t.Fatalf("expected PTR source, got %q", update.seenBy)
+	}
+}

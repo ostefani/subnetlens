@@ -56,7 +56,7 @@ func init() {
 	scanCmd.Flags().BoolVar(&flagPlain, "plain", false,
 		"Plain text output instead of TUI")
 	scanCmd.Flags().BoolVar(&flagAllAlive, "all-alive", false,
-		"Show only hosts with at least one successful connection")
+		"Show all discovered hosts, including those that respond with TCP connection errors")
 
 	rootCmd.AddCommand(scanCmd)
 }
