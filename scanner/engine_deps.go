@@ -45,7 +45,7 @@ type subnetPreheater interface {
 }
 
 type hostDiscoverer interface {
-	Discover(context.Context, models.ScanOptions, func(done, total int), nameCache, icmpProber, *ARPCache, *socketLimiter, issueReporter) <-chan HostEvent
+	Discover(context.Context, models.ScanOptions, func(done, total int), nameCache, icmpProber, *ARPCache, contracts.DiscoveryRuntime) <-chan contracts.HostObservation
 }
 
 type portScanner interface {
@@ -109,7 +109,7 @@ func (f subnetPreheaterFunc) Preheat(ctx context.Context, ips iter.Seq[string], 
 	f(ctx, ips, total, icmp)
 }
 
-type hostDiscovererFunc func(context.Context, models.ScanOptions, func(done, total int), nameCache, icmpProber, *ARPCache, *socketLimiter, issueReporter) <-chan HostEvent
+type hostDiscovererFunc func(context.Context, models.ScanOptions, func(done, total int), nameCache, icmpProber, *ARPCache, contracts.DiscoveryRuntime) <-chan contracts.HostObservation
 
 func (f hostDiscovererFunc) Discover(
 	ctx context.Context,
@@ -118,10 +118,9 @@ func (f hostDiscovererFunc) Discover(
 	cache nameCache,
 	icmp icmpProber,
 	arpCache *ARPCache,
-	socketLimiter *socketLimiter,
-	issues issueReporter,
-) <-chan HostEvent {
-	return f(ctx, opts, progress, cache, icmp, arpCache, socketLimiter, issues)
+	runtime contracts.DiscoveryRuntime,
+) <-chan contracts.HostObservation {
+	return f(ctx, opts, progress, cache, icmp, arpCache, runtime)
 }
 
 type portScannerFunc func(context.Context, *models.Host, models.ScanOptions, contracts.Runtime)

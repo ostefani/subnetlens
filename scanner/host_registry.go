@@ -2,9 +2,9 @@ package scanner
 
 import (
 	"context"
-	"time"
 
 	"github.com/ostefani/subnetlens/models"
+	"github.com/ostefani/subnetlens/scanner/contracts"
 )
 
 type EventType int
@@ -19,17 +19,8 @@ type HostEvent struct {
 	Host *models.Host
 }
 
-type hostUpdate struct {
-	ip      string
-	mac     string
-	name    string
-	alive   bool
-	latency time.Duration
-	seenBy  models.HostSource
-}
-
 type HostRegistry struct {
-	updates chan hostUpdate
+	updates chan contracts.HostObservation
 }
 
 func (r *HostRegistry) run(ctx context.Context, out chan<- HostEvent) {
@@ -45,15 +36,15 @@ func (r *HostRegistry) run(ctx context.Context, out chan<- HostEvent) {
 			if !ok {
 				return
 			}
-			if u.ip == "" {
+			if u.IP == "" {
 				continue
 			}
 
-			h, exists := hosts[u.ip]
+			h, exists := hosts[u.IP]
 			if !exists {
-				h = models.NewHost(u.ip)
-				hosts[u.ip] = h
-				mergeUpdate(h, u)
+				h = models.NewHost(u.IP)
+				hosts[u.IP] = h
+				mergeObservation(h, u)
 				if !emitHostEvent(ctx, out, HostEvent{
 					Type: HostDiscovered,
 					Host: h,
@@ -63,7 +54,7 @@ func (r *HostRegistry) run(ctx context.Context, out chan<- HostEvent) {
 				continue
 			}
 
-			if mergeUpdate(h, u) {
+			if mergeObservation(h, u) {
 				if !emitHostEvent(ctx, out, HostEvent{
 					Type: HostUpdated,
 					Host: h,
@@ -75,30 +66,30 @@ func (r *HostRegistry) run(ctx context.Context, out chan<- HostEvent) {
 	}
 }
 
-func mergeUpdate(h *models.Host, u hostUpdate) bool {
+func mergeObservation(h *models.Host, u contracts.HostObservation) bool {
 	if h == nil {
 		return false
 	}
 
 	changed := false
 
-	if h.SetMACIfEmpty(u.mac) {
+	if h.SetMACIfEmpty(u.MAC) {
 		changed = true
 	}
 
-	if h.SetHostnameIfEmptyOrIP(u.name) {
+	if h.SetHostnameIfEmptyOrIP(u.Name) {
 		changed = true
 	}
 
-	if u.alive && h.SetAlive(true) {
+	if u.Alive && h.SetAlive(true) {
 		changed = true
 	}
 
-	if h.SetLatencyIfZero(u.latency) {
+	if h.SetLatencyIfZero(u.Latency) {
 		changed = true
 	}
 
-	if h.MarkSeen(u.seenBy) {
+	if h.MarkSeen(u.Source) {
 		changed = true
 	}
 

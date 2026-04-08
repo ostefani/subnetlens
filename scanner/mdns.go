@@ -5,11 +5,12 @@ import (
 	"time"
 
 	"github.com/ostefani/subnetlens/models"
+	"github.com/ostefani/subnetlens/scanner/contracts"
 	mdnstransport "github.com/ostefani/subnetlens/transports/mdns"
 	nbnstransport "github.com/ostefani/subnetlens/transports/nbns"
 )
 
-func resolveHostname(ctx context.Context, ip string, cache nameCache, socketLimiter *socketLimiter) resolveResult {
+func resolveHostname(ctx context.Context, ip string, cache nameCache, socketLimiter contracts.SocketLimiter) resolveResult {
 	if cache != nil {
 		if res, ok := cache.LookupName(ip); ok && res.name != "" {
 			return res

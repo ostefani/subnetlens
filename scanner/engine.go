@@ -13,14 +13,15 @@ import (
 )
 
 type Engine struct {
-	Opts            models.ScanOptions
-	SocketBudget    int
-	OnHost          func(h *models.Host)  // called when a host is ready or later updated
-	OnProgress      func(done, total int) // called after each ping probe in discovery
-	OnIssue         func(issue models.ScanIssue)
-	deps            engineDependencies
-	hostScanners    []contracts.HostScanner
-	hostClassifiers []contracts.HostClassifier
+	Opts             models.ScanOptions
+	SocketBudget     int
+	OnHost           func(h *models.Host)  // called when a host is ready or later updated
+	OnProgress       func(done, total int) // called after each ping probe in discovery
+	OnIssue          func(issue models.ScanIssue)
+	deps             engineDependencies
+	discoveryModules []contracts.DiscoveryModule
+	hostScanners     []contracts.HostScanner
+	hostClassifiers  []contracts.HostClassifier
 }
 
 // NewEngine constructs a production-ready engine with the default scanner
@@ -65,6 +66,7 @@ func (e *Engine) Run(ctx context.Context) *models.ScanResult {
 	deps := e.deps
 
 	socketLimiter := newSocketLimiter(e.SocketBudget)
+	discoverySem := make(chan struct{}, e.Opts.DiscoveryConcurrencyLimit())
 
 	result := &models.ScanResult{
 		Subnet:    e.Opts.Subnet,
@@ -97,13 +99,26 @@ func (e *Engine) Run(ctx context.Context) *models.ScanResult {
 
 	targets, err := deps.targetExpander.Expand(e.Opts.Subnet)
 	if err != nil {
+		issues.Report(warningIssue("discovery", "target expansion failed: %v", err))
 		debugLog("engine", "expandTargets error: %v", err)
 	} else {
 		debugLog("engine", "expandTargets")
 		deps.subnetPreheater.Preheat(runCtx, targets.seq, targets.total, icmpScanner)
 	}
 
-	eventCh := deps.hostDiscoverer.Discover(runCtx, e.Opts, e.OnProgress, cache, icmpScanner, arpCache, socketLimiter, issues)
+	discoveryRuntime := newDiscoveryRuntime(targets, socketLimiter, discoverySem, issues)
+	observationCh := e.runDiscoveryModules(runCtx, discoveryRuntime, deps, cache, icmpScanner, arpCache)
+	registry := &HostRegistry{updates: make(chan contracts.HostObservation, 512)}
+	eventCh := make(chan HostEvent, 256)
+	go registry.run(runCtx, eventCh)
+	go func() {
+		defer close(registry.updates)
+		for observation := range observationCh {
+			if !sendHostObservation(runCtx, registry.updates, observation) {
+				return
+			}
+		}
+	}()
 
 	globalSem := make(chan struct{}, e.Opts.ScanConcurrencyLimit())
 	runtime := newScanRuntime(socketLimiter, globalSem, issues)
@@ -171,6 +186,25 @@ func (e *Engine) Run(ctx context.Context) *models.ScanResult {
 	result.FinishedAt = time.Now()
 
 	return result
+}
+
+func (e *Engine) runDiscoveryModules(
+	ctx context.Context,
+	runtime contracts.DiscoveryRuntime,
+	deps engineDependencies,
+	cache nameCache,
+	icmpScanner icmpProber,
+	arpCache *ARPCache,
+) <-chan contracts.HostObservation {
+	streams := make([]<-chan contracts.HostObservation, 0, 1+len(e.discoveryModules))
+	streams = append(streams, deps.hostDiscoverer.Discover(ctx, e.Opts, e.OnProgress, cache, icmpScanner, arpCache, runtime))
+	for _, discoveryModule := range e.discoveryModules {
+		if discoveryModule == nil {
+			continue
+		}
+		streams = append(streams, discoveryModule.Discover(ctx, e.Opts, runtime))
+	}
+	return mergeHostObservationStreams(ctx, streams...)
 }
 
 func (e *Engine) runHostScanners(

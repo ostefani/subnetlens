@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ostefani/subnetlens/models"
+	"github.com/ostefani/subnetlens/scanner/contracts"
 	arptransport "github.com/ostefani/subnetlens/transports/arp"
 	mdnstransport "github.com/ostefani/subnetlens/transports/mdns"
 )
@@ -37,87 +38,81 @@ func DiscoverHosts(
 	cache nameCache,
 	icmpScanner icmpProber,
 	arpCache *ARPCache,
-	socketLimiter *socketLimiter,
-	issues issueReporter,
-) <-chan HostEvent {
-	out := make(chan HostEvent, 256)
-	registry := &HostRegistry{updates: make(chan hostUpdate, 512)}
-
-	go registry.run(ctx, out)
+	runtime contracts.DiscoveryRuntime,
+) <-chan contracts.HostObservation {
+	out := make(chan contracts.HostObservation, 256)
 
 	go func() {
-		defer close(registry.updates)
+		defer close(out)
 
-		targets, err := expandTargets(opts.Subnet)
-		if err != nil {
-			if issues != nil {
-				issues.Report(warningIssue("discovery", "target expansion failed: %v", err))
-			}
+		targets := runtime.Targets()
+		if targets.Total() == 0 {
 			return
 		}
+		debugLog("discovery", "sweeping %d IPs in %s", targets.Total(), opts.Subnet)
 
-		debugLog("discovery", "sweeping %d IPs in %s", targets.total, opts.Subnet)
-
-		localInfo := localDiscoveryInfoForTarget(opts.Subnet, targets.contains)
-		for _, update := range localHostUpdates(localInfo) {
-			if !sendHostUpdate(ctx, registry.updates, update) {
+		localInfo := localDiscoveryInfoForTarget(opts.Subnet, targets.Contains)
+		for _, observation := range localHostObservations(localInfo) {
+			if !sendHostObservation(ctx, out, observation) {
 				return
 			}
 		}
 
 		go func() {
-			if err := mdnstransport.TriggerServiceDiscovery(ctx); err != nil && ctx.Err() == nil && issues != nil {
-				issues.Report(warningIssue("mdns", "active mDNS discovery trigger unavailable: %v", err))
+			if err := mdnstransport.TriggerServiceDiscovery(ctx); err != nil && ctx.Err() == nil {
+				runtime.ReportIssue(warningIssue("mdns", "active mDNS discovery trigger unavailable: %v", err))
 			}
 		}()
 
-		sem := make(chan struct{}, opts.DiscoveryConcurrencyLimit())
 		var waitGroup sync.WaitGroup
 		done := 0
 		var mu sync.Mutex
 		scanDone := make(chan struct{})
 		var arpWG sync.WaitGroup
 
-		if arpCache != nil && targets.contains != nil {
+		if arpCache != nil {
 			arpWG.Add(1)
 			go func() {
 				defer arpWG.Done()
-				arptransport.Watch(ctx, arpCache, targets.contains, func(ip, mac string) bool {
-					return sendHostUpdate(ctx, registry.updates, hostUpdate{
-						ip:     ip,
-						mac:    mac,
-						alive:  true,
-						seenBy: models.HostSourceARP,
+				arptransport.Watch(ctx, arpCache, targets.Contains, func(ip, mac string) bool {
+					return sendHostObservation(ctx, out, contracts.HostObservation{
+						IP:     ip,
+						MAC:    mac,
+						Alive:  true,
+						Source: models.HostSourceARP,
 					})
 				}, scanDone)
 			}()
 		}
 
 	Loop:
-		for ip := range targets.seq {
+		for ip := range targets.All() {
 			select {
 			case <-ctx.Done():
 				debugLog("discovery", "context cancelled after %d IPs — draining", done)
 				break Loop
-			case sem <- struct{}{}:
+			default:
 			}
 
+			if err := runtime.AcquireDiscoverySlot(ctx); err != nil {
+				break Loop
+			}
 			waitGroup.Add(1)
 			go func(ip string) {
 				defer waitGroup.Done()
-				defer func() { <-sem }()
+				defer runtime.ReleaseDiscoverySlot()
 
-				updates := probeHostSmart(ctx, ip, opts, cache, icmpScanner, arpCache, socketLimiter)
+				observations := probeHostSmart(ctx, ip, opts, cache, icmpScanner, arpCache, runtime.SocketLimiter())
 
 				mu.Lock()
 				done++
 				if progress != nil {
-					progress(done, targets.total)
+					progress(done, targets.Total())
 				}
 				mu.Unlock()
 
-				for _, update := range updates {
-					if !sendHostUpdate(ctx, registry.updates, update) {
+				for _, observation := range observations {
+					if !sendHostObservation(ctx, out, observation) {
 						return
 					}
 				}
@@ -160,17 +155,17 @@ func localDiscoveryInfoForTarget(target string, contains func(string) bool) Loca
 	return info
 }
 
-func localHostUpdates(info LocalDiscoveryInfo) []hostUpdate {
+func localHostObservations(info LocalDiscoveryInfo) []contracts.HostObservation {
 	if !info.InScanRange || info.IP == "" {
 		return nil
 	}
 
-	return []hostUpdate{{
-		ip:     info.IP,
-		mac:    info.MAC,
-		name:   info.Hostname,
-		alive:  true,
-		seenBy: models.HostSourceSelf,
+	return []contracts.HostObservation{{
+		IP:     info.IP,
+		MAC:    info.MAC,
+		Name:   info.Hostname,
+		Alive:  true,
+		Source: models.HostSourceSelf,
 	}}
 }
 
@@ -258,16 +253,16 @@ func probeHostSmart(
 	cache nameCache,
 	icmpScanner icmpProber,
 	arpCache *ARPCache,
-	socketLimiter *socketLimiter,
-) []hostUpdate {
-	updates := make([]hostUpdate, 0, 3)
+	socketLimiter contracts.SocketLimiter,
+) []contracts.HostObservation {
+	observations := make([]contracts.HostObservation, 0, 3)
 	if arpCache != nil {
 		if mac, ok := arpCache.Lookup(ip); ok {
-			updates = append(updates, hostUpdate{
-				ip:     ip,
-				mac:    mac,
-				alive:  true,
-				seenBy: models.HostSourceARP,
+			observations = append(observations, contracts.HostObservation{
+				IP:     ip,
+				MAC:    mac,
+				Alive:  true,
+				Source: models.HostSourceARP,
 			})
 		}
 	}
@@ -279,28 +274,28 @@ func probeHostSmart(
 	res := <-resCh
 
 	if res.name != "" && res.name != ip {
-		updates = append(updates, hostUpdate{
-			ip:     ip,
-			name:   res.name,
-			alive:  res.provesLiveness,
-			seenBy: res.source,
+		observations = append(observations, contracts.HostObservation{
+			IP:     ip,
+			Name:   res.name,
+			Alive:  res.provesLiveness,
+			Source: res.source,
 		})
 	}
 
 	if alive {
-		updates = append(updates, hostUpdate{
-			ip:      ip,
-			alive:   true,
-			latency: latency,
-			seenBy:  seenBy,
+		observations = append(observations, contracts.HostObservation{
+			IP:      ip,
+			Alive:   true,
+			Latency: latency,
+			Source:  seenBy,
 		})
 	}
 
-	if len(updates) == 0 {
+	if len(observations) == 0 {
 		return nil
 	}
 
-	return updates
+	return observations
 }
 
 func livenessProbe(
@@ -308,7 +303,7 @@ func livenessProbe(
 	ip string,
 	opts models.ScanOptions,
 	icmpScanner icmpProber,
-	limiter *socketLimiter,
+	limiter contracts.SocketLimiter,
 ) (bool, time.Duration, models.HostSource) {
 	if icmpScanner != nil {
 		for i := 0; i < 2; i++ {
@@ -319,7 +314,7 @@ func livenessProbe(
 		}
 	}
 
-	var tcp func(context.Context, string, time.Duration, *socketLimiter) (bool, time.Duration)
+	var tcp func(context.Context, string, time.Duration, contracts.SocketLimiter) (bool, time.Duration)
 	if opts.AllAlive {
 		tcp = tcpProbeAlive
 	} else {
@@ -482,8 +477,8 @@ func rangeSpec(start, end uint32, skipEndpoints bool) (targetSpec, error) {
 	}, nil
 }
 
-func sendHostUpdate(ctx context.Context, updates chan<- hostUpdate, update hostUpdate) bool {
-	if update.ip == "" {
+func sendHostObservation(ctx context.Context, updates chan<- contracts.HostObservation, update contracts.HostObservation) bool {
+	if update.IP == "" {
 		return true
 	}
 

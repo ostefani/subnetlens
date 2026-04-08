@@ -43,6 +43,7 @@ const (
 	HostSourcePTR   HostSource = "ptr"
 	HostSourceICMP  HostSource = "icmp"
 	HostSourceTCP   HostSource = "tcp"
+	HostSourceUDP   HostSource = "udp"
 	HostSourceSelf  HostSource = "self"
 	HostSourceMixed HostSource = "mixed"
 )

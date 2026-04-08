@@ -171,7 +171,7 @@ func (m *stubSubnetPreheater) Calls() int {
 type stubHostDiscoverer struct {
 	mu     sync.Mutex
 	calls  int
-	events <-chan HostEvent
+	events <-chan contracts.HostObservation
 }
 
 func (m *stubHostDiscoverer) Discover(
@@ -181,9 +181,8 @@ func (m *stubHostDiscoverer) Discover(
 	_ nameCache,
 	_ icmpProber,
 	_ *ARPCache,
-	_ *socketLimiter,
-	_ issueReporter,
-) <-chan HostEvent {
+	_ contracts.DiscoveryRuntime,
+) <-chan contracts.HostObservation {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.calls++
@@ -336,6 +335,62 @@ func (m *protocolHostScanner) Calls() int {
 	return m.calls
 }
 
+type registeredDiscoveryModule struct {
+	mu           sync.Mutex
+	calls        int
+	targetTotal  int
+	socketBudget bool
+}
+
+func (m *registeredDiscoveryModule) Discover(ctx context.Context, _ models.ScanOptions, runtime contracts.DiscoveryRuntime) <-chan contracts.HostObservation {
+	m.mu.Lock()
+	m.calls++
+	targets := runtime.Targets()
+	m.targetTotal = targets.Total()
+	m.mu.Unlock()
+
+	if err := runtime.AcquireDiscoverySlot(ctx); err == nil {
+		runtime.ReleaseDiscoverySlot()
+	}
+
+	if limiter := runtime.SocketLimiter(); limiter != nil {
+		if err := limiter.Acquire(ctx); err == nil {
+			m.mu.Lock()
+			m.socketBudget = true
+			m.mu.Unlock()
+			limiter.Release()
+		}
+	}
+
+	out := make(chan contracts.HostObservation, 1)
+	out <- contracts.HostObservation{
+		IP:     "192.168.1.77",
+		Name:   "udp-probe",
+		Alive:  true,
+		Source: models.HostSourceUDP,
+	}
+	close(out)
+	return out
+}
+
+func (m *registeredDiscoveryModule) Calls() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.calls
+}
+
+func (m *registeredDiscoveryModule) TargetTotal() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.targetTotal
+}
+
+func (m *registeredDiscoveryModule) SocketBudgetOK() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.socketBudget
+}
+
 type registeredHostClassifier struct {
 	mu     sync.Mutex
 	calls  int
@@ -414,7 +469,7 @@ func TestEngineReportsNonFatalIssues(t *testing.T) {
 }
 
 func TestEngineCoordinatesHostUpdatesWithScanCompletion(t *testing.T) {
-	events := make(chan HostEvent, 4)
+	events := make(chan contracts.HostObservation, 4)
 	scanStarted := make(chan struct{})
 	releaseScan := make(chan struct{})
 	callbacks := make(chan models.HostSnapshot, 4)
@@ -440,7 +495,6 @@ func TestEngineCoordinatesHostUpdatesWithScanCompletion(t *testing.T) {
 		device: "Router",
 	}
 
-	host := models.NewHost("192.168.1.10")
 	engine := &Engine{
 		Opts: models.ScanOptions{
 			Subnet:      "192.168.1.0/24",
@@ -469,7 +523,12 @@ func TestEngineCoordinatesHostUpdatesWithScanCompletion(t *testing.T) {
 		resultCh <- engine.Run(context.Background())
 	}()
 
-	events <- HostEvent{Type: HostDiscovered, Host: host}
+	events <- contracts.HostObservation{
+		IP:      "192.168.1.10",
+		Alive:   true,
+		Latency: 10 * time.Millisecond,
+		Source:  models.HostSourceICMP,
+	}
 
 	select {
 	case <-scanStarted:
@@ -477,10 +536,12 @@ func TestEngineCoordinatesHostUpdatesWithScanCompletion(t *testing.T) {
 		t.Fatal("timed out waiting for port scan to start")
 	}
 
-	if !host.SetMACIfEmpty("00:1c:b3:00:00:01") {
-		t.Fatal("expected MAC update before ready callback")
+	events <- contracts.HostObservation{
+		IP:     "192.168.1.10",
+		MAC:    "00:1c:b3:00:00:01",
+		Alive:  true,
+		Source: models.HostSourceARP,
 	}
-	events <- HostEvent{Type: HostUpdated, Host: host}
 
 	select {
 	case snapshot := <-callbacks:
@@ -513,10 +574,11 @@ func TestEngineCoordinatesHostUpdatesWithScanCompletion(t *testing.T) {
 		t.Fatalf("expected port scan results to be published after readiness, got %+v", first.OpenPorts)
 	}
 
-	if !host.SetHostname("lab-router") {
-		t.Fatal("expected post-ready hostname update to succeed")
+	events <- contracts.HostObservation{
+		IP:     "192.168.1.10",
+		Name:   "lab-router",
+		Source: models.HostSourceNBNS,
 	}
-	events <- HostEvent{Type: HostUpdated, Host: host}
 
 	var second models.HostSnapshot
 	select {
@@ -541,8 +603,8 @@ func TestEngineCoordinatesHostUpdatesWithScanCompletion(t *testing.T) {
 	if len(result.Hosts) != 1 {
 		t.Fatalf("expected one host in result, got %d", len(result.Hosts))
 	}
-	if result.Hosts[0] != host {
-		t.Fatal("expected engine to keep the discovered host pointer in the final result")
+	if got := result.Hosts[0].Snapshot().IP; got != "192.168.1.10" {
+		t.Fatalf("expected final result to contain the discovered IP, got %q", got)
 	}
 
 	if got := ouiLoader.Calls(); got != 1 {
@@ -581,7 +643,7 @@ func TestEngineCoordinatesHostUpdatesWithScanCompletion(t *testing.T) {
 }
 
 func TestEngineSkipsPreheatingWhenTargetExpansionFails(t *testing.T) {
-	events := make(chan HostEvent)
+	events := make(chan contracts.HostObservation)
 	close(events)
 
 	releaseScan := make(chan struct{})
@@ -627,9 +689,12 @@ func TestEngineSkipsPreheatingWhenTargetExpansionFails(t *testing.T) {
 }
 
 func TestEngineUsesRegisteredHostScannerAndClassifier(t *testing.T) {
-	events := make(chan HostEvent, 1)
-	host := models.NewHost("192.168.1.44")
-	events <- HostEvent{Type: HostDiscovered, Host: host}
+	events := make(chan contracts.HostObservation, 1)
+	events <- contracts.HostObservation{
+		IP:     "192.168.1.44",
+		Alive:  true,
+		Source: models.HostSourceICMP,
+	}
 	close(events)
 
 	discoverer := &stubHostDiscoverer{events: events}
@@ -708,9 +773,12 @@ func TestEngineUsesRegisteredHostScannerAndClassifier(t *testing.T) {
 }
 
 func TestEngineMergesPortsAcrossProtocolScopedHostScanners(t *testing.T) {
-	events := make(chan HostEvent, 1)
-	host := models.NewHost("192.168.1.55")
-	events <- HostEvent{Type: HostDiscovered, Host: host}
+	events := make(chan contracts.HostObservation, 1)
+	events <- contracts.HostObservation{
+		IP:     "192.168.1.55",
+		Alive:  true,
+		Source: models.HostSourceICMP,
+	}
 	close(events)
 
 	discoverer := &stubHostDiscoverer{events: events}
@@ -785,6 +853,85 @@ func TestEngineMergesPortsAcrossProtocolScopedHostScanners(t *testing.T) {
 	}
 	if snapshot.OpenPorts[1].Number != 161 || snapshot.OpenPorts[1].Protocol != "udp" {
 		t.Fatalf("expected UDP port to be preserved, got %+v", snapshot.OpenPorts[1])
+	}
+}
+
+func TestEngineUsesRegisteredDiscoveryModules(t *testing.T) {
+	events := make(chan contracts.HostObservation)
+	close(events)
+
+	discoverer := &stubHostDiscoverer{events: events}
+	discoveryModule := &registeredDiscoveryModule{}
+	registeredScanner := &registeredHostScanner{}
+	registeredClassifier := &registeredHostClassifier{
+		hostOS: "NetworkOS",
+		device: "Managed Device",
+	}
+
+	engine := &Engine{
+		Opts: models.ScanOptions{
+			Subnet:      "192.168.1.0/24",
+			Timeout:     50 * time.Millisecond,
+			Concurrency: 2,
+		},
+		SocketBudget: 2,
+		deps: engineDependencies{
+			ouiLoader:           &countingOUILoader{},
+			icmpFactory:         &stubICMPFactory{factory: errors.New("icmp unavailable in test")},
+			passiveMDNSListener: &stubPassiveMDNSListener{cache: &stubNameCache{}},
+			activeARPSweeper:    &stubActiveARPSweeper{},
+			targetExpander: &stubTargetExpander{
+				spec: targetSpec{
+					seq: func(yield func(string) bool) {
+						yield("192.168.1.77")
+					},
+					total: 1,
+				},
+			},
+			subnetPreheater: preheaterNoop{},
+			hostDiscoverer:  discoverer,
+			portScanner: &blockingPortScanner{
+				scanStarted: make(chan struct{}),
+				releaseScan: closedChan(),
+			},
+			hostEnricher: &countingHostEnricher{},
+			osDetector:   &stubOSDetector{},
+		},
+	}
+	engine.RegisterDiscoveryModule(discoveryModule)
+	engine.RegisterHostScanner(registeredScanner)
+	engine.RegisterHostClassifier(registeredClassifier)
+
+	result := engine.Run(context.Background())
+
+	if got := discoverer.Calls(); got != 1 {
+		t.Fatalf("expected built-in discoverer to still be invoked once, got %d", got)
+	}
+	if got := discoveryModule.Calls(); got != 1 {
+		t.Fatalf("expected registered discovery module to run once, got %d", got)
+	}
+	if got := discoveryModule.TargetTotal(); got != 1 {
+		t.Fatalf("expected registered discovery module to receive expanded target set, got %d", got)
+	}
+	if !discoveryModule.SocketBudgetOK() {
+		t.Fatal("expected registered discovery module to receive a working socket limiter")
+	}
+	if got := registeredScanner.Calls(); got != 1 {
+		t.Fatalf("expected registered host scanner to run once for discovered host, got %d", got)
+	}
+	if got := registeredClassifier.Calls(); got != 1 {
+		t.Fatalf("expected registered host classifier to run once for discovered host, got %d", got)
+	}
+	if len(result.Hosts) != 1 {
+		t.Fatalf("expected one host discovered by registered module, got %d", len(result.Hosts))
+	}
+
+	snapshot := result.Hosts[0].Snapshot()
+	if snapshot.IP != "192.168.1.77" {
+		t.Fatalf("expected registered discovery module host IP, got %q", snapshot.IP)
+	}
+	if snapshot.Source != models.HostSourceUDP {
+		t.Fatalf("expected registered discovery source udp, got %q", snapshot.Source)
 	}
 }
 

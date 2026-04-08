@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ostefani/subnetlens/models"
+	"github.com/ostefani/subnetlens/scanner/contracts"
 )
 
 type resolveResult struct {
@@ -19,7 +20,7 @@ type resolveResult struct {
 
 type observedConn struct {
 	net.Conn
-	limiter *socketLimiter
+	limiter contracts.SocketLimiter
 	once    sync.Once
 }
 
@@ -46,7 +47,7 @@ func (c *observedPacketConn) WriteTo(b []byte, addr net.Addr) (int, error) {
 	return c.packetConn.WriteTo(b, addr)
 }
 
-func wrapObservedConn(conn net.Conn, limiter *socketLimiter) net.Conn {
+func wrapObservedConn(conn net.Conn, limiter contracts.SocketLimiter) net.Conn {
 	observed := &observedConn{
 		Conn:    conn,
 		limiter: limiter,
@@ -61,7 +62,7 @@ func wrapObservedConn(conn net.Conn, limiter *socketLimiter) net.Conn {
 	}
 }
 
-func NewBoundedResolver(limiter *socketLimiter) *net.Resolver {
+func NewBoundedResolver(limiter contracts.SocketLimiter) *net.Resolver {
 	if limiter == nil {
 		return &net.Resolver{PreferGo: true}
 	}
@@ -85,7 +86,7 @@ func NewBoundedResolver(limiter *socketLimiter) *net.Resolver {
 	}
 }
 
-func probePTR(ctx context.Context, ip string, socketLimiter *socketLimiter) string {
+func probePTR(ctx context.Context, ip string, socketLimiter contracts.SocketLimiter) string {
 	ctx, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
 	defer cancel()
 
