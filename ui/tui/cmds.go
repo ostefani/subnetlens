@@ -10,10 +10,11 @@ import (
 	"github.com/ostefani/subnetlens/scanner"
 )
 
-func runScanCmd(opts models.ScanOptions, socketBudget int, hostCh chan *models.Host, progCh chan [2]int) tea.Cmd {
+func runScanCmd(opts models.ScanOptions, socketBudget int, hostCh chan *models.Host, progCh chan [2]int, issueCh chan models.ScanIssue) tea.Cmd {
 	return func() tea.Msg {
 		defer close(hostCh)
 		defer close(progCh)
+		defer close(issueCh)
 
 		ctx := context.Background()
 		var finalDone atomic.Int64
@@ -24,6 +25,12 @@ func runScanCmd(opts models.ScanOptions, socketBudget int, hostCh chan *models.H
 		eng.OnHost = func(h *models.Host) {
 			hostCh <- h
 
+		}
+		eng.OnIssue = func(issue models.ScanIssue) {
+			select {
+			case issueCh <- issue:
+			default:
+			}
 		}
 
 		eng.OnProgress = func(done, total int) {
@@ -80,5 +87,15 @@ func waitForProgressCmd(progCh chan [2]int) tea.Cmd {
 			return nil
 		}
 		return progressMsg{done: v[0], total: v[1]}
+	}
+}
+
+func waitForIssueCmd(issueCh chan models.ScanIssue) tea.Cmd {
+	return func() tea.Msg {
+		issue, ok := <-issueCh
+		if !ok {
+			return nil
+		}
+		return issueMsg{issue: issue}
 	}
 }

@@ -6,7 +6,7 @@ import (
 	"github.com/ostefani/subnetlens/models"
 )
 
-func EnrichHost(h *models.Host, cache nameCache, arp *ARPCache) {
+func EnrichHost(h *models.Host, arp *ARPCache) {
 	if h == nil {
 		return
 	}
@@ -20,12 +20,6 @@ func EnrichHost(h *models.Host, cache nameCache, arp *ARPCache) {
 			h.SetDevice("Randomized MAC — device undetectable")
 		} else if snapshot.Vendor == "" {
 			h.SetVendorIfEmpty(VendorFromMAC(snapshot.MAC))
-		}
-	}
-
-	if cache != nil && (snapshot.Hostname == "" || snapshot.Hostname == snapshot.IP) {
-		if res, ok := cache.LookupName(snapshot.IP); ok {
-			h.SetHostnameIfEmptyOrIP(res.name)
 		}
 	}
 }

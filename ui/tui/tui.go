@@ -19,6 +19,7 @@ const (
 
 type hostsFoundMsg struct{ hosts []*models.Host }
 type progressMsg struct{ done, total int }
+type issueMsg struct{ issue models.ScanIssue }
 type scanDoneMsg struct {
 	result     *models.ScanResult
 	finalDone  int
@@ -34,6 +35,7 @@ type Model struct {
 	local        scanner.LocalDiscoveryInfo
 	hostCh       chan *models.Host
 	progCh       chan [2]int
+	issueCh      chan models.ScanIssue
 	hosts        []*models.Host
 	visibleCache []*models.Host
 	tableCache   *tableRenderCache
@@ -58,6 +60,7 @@ func New(opts models.ScanOptions, socketBudget int, warnings []string) Model {
 		local:        scanner.LocalDiscoveryInfoForTarget(opts.Subnet),
 		hostCh:       make(chan *models.Host, 32),
 		progCh:       make(chan [2]int, 32),
+		issueCh:      make(chan models.ScanIssue, 16),
 		tableCache:   &tableRenderCache{dirty: true},
 		hostIndex:    make(map[string]int),
 		windowWidth:  defaultWindowWidth,
@@ -67,9 +70,10 @@ func New(opts models.ScanOptions, socketBudget int, warnings []string) Model {
 
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
-		runScanCmd(m.opts, m.socketBudget, m.hostCh, m.progCh),
+		runScanCmd(m.opts, m.socketBudget, m.hostCh, m.progCh, m.issueCh),
 		waitForHostCmd(m.hostCh),
 		waitForProgressCmd(m.progCh),
+		waitForIssueCmd(m.issueCh),
 	)
 }
 
@@ -114,6 +118,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.done = msg.done
 		m.total = msg.total
 		return m, waitForProgressCmd(m.progCh)
+
+	case issueMsg:
+		m.warnings = append(m.warnings, msg.issue.String())
+		return m, waitForIssueCmd(m.issueCh)
 
 	case scanDoneMsg:
 		m.finished = true

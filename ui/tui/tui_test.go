@@ -101,6 +101,20 @@ func TestRenderSummaryUsesStyledLayout(t *testing.T) {
 	}
 }
 
+func TestFormatPortsIncludesProtocol(t *testing.T) {
+	formatted := ansi.Strip(formatPorts([]models.Port{
+		{Number: 53, Protocol: "udp", Service: "DNS"},
+		{Number: 443, Protocol: "tcp", Service: "HTTPS"},
+	}))
+
+	if !strings.Contains(formatted, "53/udp DNS") {
+		t.Fatalf("expected UDP port label to include protocol, got %q", formatted)
+	}
+	if !strings.Contains(formatted, "443/tcp HTTPS") {
+		t.Fatalf("expected TCP port label to include protocol, got %q", formatted)
+	}
+}
+
 func TestMergeHostsPreservesStreamOrderAndAddsMissingFinalHosts(t *testing.T) {
 	streamedA := models.NewHost("192.168.1.10")
 	streamedB := models.NewHost("192.168.1.20")

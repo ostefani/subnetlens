@@ -1,6 +1,6 @@
 //go:build windows
 
-package scanner
+package mdns
 
 import (
 	"context"
@@ -9,14 +9,7 @@ import (
 	"syscall"
 )
 
-// NOTE:
-// Windows mDNS passive listening is best-effort here and has NOT been tested yet.
-// This file exists so the package still builds on Windows.
-// Someone should verify actual receive behavior on a real Windows machine.
-//
-// Windows does not support SO_REUSEPORT like Unix does, so this uses SO_REUSEADDR
-// as the closest practical option for a UDP listener on 5353.
-func newMDNSSocket() (net.PacketConn, error) {
+func newSocket() (net.PacketConn, error) {
 	lc := net.ListenConfig{
 		Control: func(network, address string, c syscall.RawConn) error {
 			var controlErr error

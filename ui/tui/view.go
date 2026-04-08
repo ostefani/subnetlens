@@ -418,7 +418,11 @@ func formatPorts(ports []models.Port) string {
 	}
 	pStrings := make([]string, 0, len(ports))
 	for _, p := range ports {
-		pStrings = append(pStrings, fmt.Sprintf("%d/%s", p.Number, p.Service))
+		label := fmt.Sprintf("%d/%s", p.Number, p.Protocol)
+		if p.Service != "" {
+			label += " " + p.Service
+		}
+		pStrings = append(pStrings, label)
 	}
 	return portStyle.Render(strings.Join(pStrings, ", "))
 }

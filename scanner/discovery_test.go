@@ -6,7 +6,7 @@ import (
 	"github.com/ostefani/subnetlens/models"
 )
 
-func TestLocalHostUpdatesIncludesSelfWhenInScanRange(t *testing.T) {
+func TestLocalHostObservationsIncludeSelfWhenInScanRange(t *testing.T) {
 	info := LocalDiscoveryInfo{
 		Hostname:    "workstation",
 		IP:          "192.168.1.20",
@@ -14,30 +14,30 @@ func TestLocalHostUpdatesIncludesSelfWhenInScanRange(t *testing.T) {
 		InScanRange: true,
 	}
 
-	updates := localHostUpdates(info)
-	if len(updates) != 1 {
-		t.Fatalf("expected 1 local host update, got %d", len(updates))
+	observations := localHostObservations(info)
+	if len(observations) != 1 {
+		t.Fatalf("expected 1 local host observation, got %d", len(observations))
 	}
 
-	update := updates[0]
-	if update.ip != info.IP {
-		t.Fatalf("expected IP %q, got %q", info.IP, update.ip)
+	observation := observations[0]
+	if observation.IP != info.IP {
+		t.Fatalf("expected IP %q, got %q", info.IP, observation.IP)
 	}
-	if update.mac != info.MAC {
-		t.Fatalf("expected MAC %q, got %q", info.MAC, update.mac)
+	if observation.MAC != info.MAC {
+		t.Fatalf("expected MAC %q, got %q", info.MAC, observation.MAC)
 	}
-	if update.name != info.Hostname {
-		t.Fatalf("expected hostname %q, got %q", info.Hostname, update.name)
+	if observation.Name != info.Hostname {
+		t.Fatalf("expected hostname %q, got %q", info.Hostname, observation.Name)
 	}
-	if !update.alive {
-		t.Fatal("expected local host update to be alive")
+	if !observation.Alive {
+		t.Fatal("expected local host observation to be alive")
 	}
-	if update.seenBy != models.HostSourceSelf {
-		t.Fatalf("expected seenBy to be self, got %q", update.seenBy)
+	if observation.Source != models.HostSourceSelf {
+		t.Fatalf("expected source to be self, got %q", observation.Source)
 	}
 }
 
-func TestLocalHostUpdatesSkipsSelfOutsideScanRange(t *testing.T) {
+func TestLocalHostObservationsSkipSelfOutsideScanRange(t *testing.T) {
 	info := LocalDiscoveryInfo{
 		Hostname:    "workstation",
 		IP:          "192.168.1.20",
@@ -45,8 +45,8 @@ func TestLocalHostUpdatesSkipsSelfOutsideScanRange(t *testing.T) {
 		InScanRange: false,
 	}
 
-	updates := localHostUpdates(info)
-	if len(updates) != 0 {
-		t.Fatalf("expected no local host updates, got %d", len(updates))
+	observations := localHostObservations(info)
+	if len(observations) != 0 {
+		t.Fatalf("expected no local host observations, got %d", len(observations))
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ostefani/subnetlens/models"
+	"github.com/ostefani/subnetlens/scanner/contracts"
 )
 
 type stubAliveICMPProber struct{}
@@ -38,9 +39,9 @@ func TestProbeHostSmartPropagatesResolvedHostnameSource(t *testing.T) {
 		nil,
 	)
 
-	var hostnameUpdate *hostUpdate
+	var hostnameUpdate *contracts.HostObservation
 	for i := range updates {
-		if updates[i].name == "workstation" {
+		if updates[i].Name == "workstation" {
 			hostnameUpdate = &updates[i]
 			break
 		}
@@ -49,8 +50,8 @@ func TestProbeHostSmartPropagatesResolvedHostnameSource(t *testing.T) {
 	if hostnameUpdate == nil {
 		t.Fatal("expected hostname update")
 	}
-	if hostnameUpdate.seenBy != models.HostSourceNBNS {
-		t.Fatalf("expected hostname source nbns, got %q", hostnameUpdate.seenBy)
+	if hostnameUpdate.Source != models.HostSourceNBNS {
+		t.Fatalf("expected hostname source nbns, got %q", hostnameUpdate.Source)
 	}
 }
 
@@ -82,13 +83,13 @@ func TestProbeHostSmartDoesNotTreatPTRNameAsLiveness(t *testing.T) {
 	}
 
 	update := updates[0]
-	if update.name != "stale.example.internal" {
+	if update.Name != "stale.example.internal" {
 		t.Fatalf("expected PTR hostname update, got %+v", update)
 	}
-	if update.alive {
+	if update.Alive {
 		t.Fatalf("expected PTR hostname update to not mark host alive, got %+v", update)
 	}
-	if update.seenBy != models.HostSourcePTR {
-		t.Fatalf("expected PTR source, got %q", update.seenBy)
+	if update.Source != models.HostSourcePTR {
+		t.Fatalf("expected PTR source, got %q", update.Source)
 	}
 }

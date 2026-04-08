@@ -1,6 +1,6 @@
 //go:build windows
 
-package scanner
+package arp
 
 import (
 	"context"
@@ -14,16 +14,16 @@ import (
 	"github.com/google/gopacket/pcap"
 )
 
-func activeARPSupported() bool { return true }
+func activeSupported() bool { return true }
 
-type arpSenderWindows struct {
+type senderWindows struct {
 	device string
 	tx     *pcap.Handle
 	srcMAC net.HardwareAddr
 	srcIP  net.IP
 }
 
-func newARPSender(iface *net.Interface, srcIP net.IP) (arpSender, error) {
+func newSender(iface *net.Interface, srcIP net.IP) (sender, error) {
 	if iface == nil {
 		return nil, fmt.Errorf("nil interface")
 	}
@@ -41,14 +41,12 @@ func newARPSender(iface *net.Interface, srcIP net.IP) (arpSender, error) {
 		return nil, err
 	}
 
-	// NOTE: Windows mDNS/ARP passive behavior is not tested here on a real Windows host.
-	// This code requires Npcap (or WinPcap-compatible mode) to be installed.
 	tx, err := pcap.OpenLive(device, 65536, false, pcap.BlockForever)
 	if err != nil {
 		return nil, fmt.Errorf("open pcap device %q: %w", device, err)
 	}
 
-	return &arpSenderWindows{
+	return &senderWindows{
 		device: device,
 		tx:     tx,
 		srcMAC: append(net.HardwareAddr(nil), iface.HardwareAddr...),
@@ -56,13 +54,13 @@ func newARPSender(iface *net.Interface, srcIP net.IP) (arpSender, error) {
 	}, nil
 }
 
-func (s *arpSenderWindows) Send(targetIP net.IP) error {
+func (s *senderWindows) Send(targetIP net.IP) error {
 	ip4 := targetIP.To4()
 	if ip4 == nil {
 		return fmt.Errorf("invalid target ip")
 	}
 
-	data, err := buildARPRequestPacket(s.srcMAC, s.srcIP, ip4)
+	data, err := buildRequestPacket(s.srcMAC, s.srcIP, ip4)
 	if err != nil {
 		return err
 	}
@@ -70,7 +68,7 @@ func (s *arpSenderWindows) Send(targetIP net.IP) error {
 	return s.tx.WritePacketData(data)
 }
 
-func (s *arpSenderWindows) Close() error {
+func (s *senderWindows) Close() error {
 	if s.tx == nil {
 		return nil
 	}
@@ -79,21 +77,20 @@ func (s *arpSenderWindows) Close() error {
 	return nil
 }
 
-func (s *arpSenderWindows) Listen(ctx context.Context, inject func(net.IP, net.HardwareAddr)) {
+func (s *senderWindows) Listen(ctx context.Context, inject func(net.IP, net.HardwareAddr), logf Logger) {
 	if inject == nil {
 		return
 	}
 
-	// Separate receive handle to avoid sharing one pcap handle between read and write.
 	rx, err := pcap.OpenLive(s.device, 65536, false, 100*time.Millisecond)
 	if err != nil {
-		debugLog("arp", "windows passive listener unavailable: %v", err)
+		log(logf, "windows passive listener unavailable: %v", err)
 		return
 	}
 	defer rx.Close()
 
 	if err := rx.SetBPFFilter("arp"); err != nil {
-		debugLog("arp", "windows passive listener filter failed: %v", err)
+		log(logf, "windows passive listener filter failed: %v", err)
 		return
 	}
 
@@ -107,7 +104,7 @@ func (s *arpSenderWindows) Listen(ctx context.Context, inject func(net.IP, net.H
 			if err == pcap.NextErrorTimeoutExpired {
 				continue
 			}
-			debugLog("arp", "windows passive listener read error: %v", err)
+			log(logf, "windows passive listener read error: %v", err)
 			return
 		}
 
@@ -170,7 +167,7 @@ func findWindowsPCAPDevice(iface *net.Interface, srcIP net.IP) (string, error) {
 	return "", fmt.Errorf("no pcap device found for interface %s (%s)", iface.Name, srcIP)
 }
 
-func buildARPRequestPacket(srcMAC net.HardwareAddr, srcIP, targetIP net.IP) ([]byte, error) {
+func buildRequestPacket(srcMAC net.HardwareAddr, srcIP, targetIP net.IP) ([]byte, error) {
 	eth := layers.Ethernet{
 		SrcMAC:       srcMAC,
 		DstMAC:       net.HardwareAddr{0xff, 0xff, 0xff, 0xff, 0xff, 0xff},

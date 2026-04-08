@@ -6,13 +6,14 @@ import (
 	"time"
 
 	"github.com/ostefani/subnetlens/models"
+	"github.com/ostefani/subnetlens/scanner/contracts"
 )
 
 func TestHostRegistryMergesLateARPWithoutReemit(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	registry := &HostRegistry{updates: make(chan hostUpdate, 4)}
+	registry := &HostRegistry{updates: make(chan contracts.HostObservation, 4)}
 	out := make(chan HostEvent, 4)
 	done := make(chan struct{})
 
@@ -21,11 +22,11 @@ func TestHostRegistryMergesLateARPWithoutReemit(t *testing.T) {
 		close(done)
 	}()
 
-	registry.updates <- hostUpdate{
-		ip:      "192.168.1.10",
-		alive:   true,
-		latency: 10 * time.Millisecond,
-		seenBy:  models.HostSourceICMP,
+	registry.updates <- contracts.HostObservation{
+		IP:      "192.168.1.10",
+		Alive:   true,
+		Latency: 10 * time.Millisecond,
+		Source:  models.HostSourceICMP,
 	}
 
 	discovered, ok := <-out
@@ -54,11 +55,11 @@ func TestHostRegistryMergesLateARPWithoutReemit(t *testing.T) {
 		t.Fatalf("unexpected latency %v", snapshot.Latency)
 	}
 
-	registry.updates <- hostUpdate{
-		ip:     "192.168.1.10",
-		mac:    "00:1c:b3:00:00:01",
-		alive:  true,
-		seenBy: models.HostSourceARP,
+	registry.updates <- contracts.HostObservation{
+		IP:     "192.168.1.10",
+		MAC:    "00:1c:b3:00:00:01",
+		Alive:  true,
+		Source: models.HostSourceARP,
 	}
 
 	updated, ok := <-out
@@ -83,7 +84,7 @@ func TestHostRegistryMergesLateARPWithoutReemit(t *testing.T) {
 		t.Fatalf("expected merged source to be mixed, got %q", snapshot.Source)
 	}
 
-	EnrichHost(host, nil, nil)
+	EnrichHost(host, nil)
 	snapshot = host.Snapshot()
 	if snapshot.Vendor != "Apple" {
 		t.Fatalf("expected vendor enrichment from MAC, got %q", snapshot.Vendor)
@@ -98,7 +99,7 @@ func TestHostRegistrySkipsDuplicateUpdates(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	registry := &HostRegistry{updates: make(chan hostUpdate, 4)}
+	registry := &HostRegistry{updates: make(chan contracts.HostObservation, 4)}
 	out := make(chan HostEvent, 4)
 	done := make(chan struct{})
 
@@ -107,11 +108,11 @@ func TestHostRegistrySkipsDuplicateUpdates(t *testing.T) {
 		close(done)
 	}()
 
-	registry.updates <- hostUpdate{
-		ip:     "192.168.1.20",
-		mac:    "00:1c:b3:00:00:02",
-		alive:  true,
-		seenBy: models.HostSourceARP,
+	registry.updates <- contracts.HostObservation{
+		IP:     "192.168.1.20",
+		MAC:    "00:1c:b3:00:00:02",
+		Alive:  true,
+		Source: models.HostSourceARP,
 	}
 
 	event := <-out
@@ -119,11 +120,11 @@ func TestHostRegistrySkipsDuplicateUpdates(t *testing.T) {
 		t.Fatalf("expected HostDiscovered, got %v", event.Type)
 	}
 
-	registry.updates <- hostUpdate{
-		ip:     "192.168.1.20",
-		mac:    "00:1c:b3:00:00:02",
-		alive:  true,
-		seenBy: models.HostSourceARP,
+	registry.updates <- contracts.HostObservation{
+		IP:     "192.168.1.20",
+		MAC:    "00:1c:b3:00:00:02",
+		Alive:  true,
+		Source: models.HostSourceARP,
 	}
 	close(registry.updates)
 	<-done

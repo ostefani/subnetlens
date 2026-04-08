@@ -1,6 +1,6 @@
 //go:build linux
 
-package scanner
+package arp
 
 import (
 	"context"
@@ -10,16 +10,16 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func activeARPSupported() bool { return true }
+func activeSupported() bool { return true }
 
-type arpSenderLinux struct {
+type senderLinux struct {
 	fd     int
 	srcMAC net.HardwareAddr
 	srcIP  net.IP
 	sa     unix.SockaddrLinklayer
 }
 
-func newARPSender(iface *net.Interface, srcIP net.IP) (arpSender, error) {
+func newSender(iface *net.Interface, srcIP net.IP) (sender, error) {
 	if iface == nil {
 		return nil, fmt.Errorf("nil interface")
 	}
@@ -48,7 +48,7 @@ func newARPSender(iface *net.Interface, srcIP net.IP) (arpSender, error) {
 	sa.Halen = 6
 	copy(sa.Addr[:], broadcastMAC())
 
-	return &arpSenderLinux{
+	return &senderLinux{
 		fd:     fd,
 		srcMAC: iface.HardwareAddr,
 		srcIP:  ip4,
@@ -56,20 +56,20 @@ func newARPSender(iface *net.Interface, srcIP net.IP) (arpSender, error) {
 	}, nil
 }
 
-func (s *arpSenderLinux) Send(targetIP net.IP) error {
+func (s *senderLinux) Send(targetIP net.IP) error {
 	ip4 := targetIP.To4()
 	if ip4 == nil {
 		return fmt.Errorf("invalid target ip")
 	}
-	frame := buildARPRequest(s.srcMAC, s.srcIP, ip4)
+	frame := buildRequest(s.srcMAC, s.srcIP, ip4)
 	return unix.Sendto(s.fd, frame, 0, &s.sa)
 }
 
-func (s *arpSenderLinux) Close() error {
+func (s *senderLinux) Close() error {
 	return unix.Close(s.fd)
 }
 
-func (s *arpSenderLinux) Listen(ctx context.Context, inject func(net.IP, net.HardwareAddr)) {
+func (s *senderLinux) Listen(ctx context.Context, inject func(net.IP, net.HardwareAddr), logf Logger) {
 	buf := make([]byte, 2048)
 	for {
 		if ctx.Err() != nil {
@@ -80,10 +80,10 @@ func (s *arpSenderLinux) Listen(ctx context.Context, inject func(net.IP, net.Har
 			if err == unix.EAGAIN || err == unix.EWOULDBLOCK || err == unix.EINTR || err == unix.ETIMEDOUT {
 				continue
 			}
-			debugLog("arp", "active sweep recv error: %v", err)
+			log(logf, "active sweep recv error: %v", err)
 			continue
 		}
-		ip, mac, ok := parseARPReply(buf[:n])
+		ip, mac, ok := parseReply(buf[:n])
 		if !ok {
 			continue
 		}
