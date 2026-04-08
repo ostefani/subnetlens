@@ -81,17 +81,46 @@ func (m *stubNameCache) StoreName(ip, name string, source models.HostSource) {
 }
 
 type stubPassiveMDNSListener struct {
-	mu    sync.Mutex
-	calls int
-	cache nameCache
-	err   error
+	mu     sync.Mutex
+	calls  int
+	cache  nameCache
+	events <-chan contracts.HostObservation
+	err    error
 }
 
-func (m *stubPassiveMDNSListener) Start(context.Context) (nameCache, error) {
+func (m *stubPassiveMDNSListener) Start(ctx context.Context) (passiveMDNSSession, error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.calls++
-	return m.cache, m.err
+	cache := m.cache
+	events := m.events
+	err := m.err
+	m.mu.Unlock()
+
+	session := passiveMDNSSession{cache: cache}
+	if events == nil {
+		return session, err
+	}
+
+	out := make(chan contracts.HostObservation, 16)
+	go func() {
+		defer close(out)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case observation, ok := <-events:
+				if !ok {
+					return
+				}
+				if !sendHostObservation(ctx, out, observation) {
+					return
+				}
+			}
+		}
+	}()
+
+	session.observations = out
+	return session, err
 }
 
 func (m *stubPassiveMDNSListener) Calls() int {
@@ -239,7 +268,7 @@ type countingHostEnricher struct {
 	calls int
 }
 
-func (m *countingHostEnricher) Enrich(*models.Host, nameCache, *ARPCache) {
+func (m *countingHostEnricher) Enrich(*models.Host, *ARPCache) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.calls++
@@ -639,6 +668,186 @@ func TestEngineCoordinatesHostUpdatesWithScanCompletion(t *testing.T) {
 	}
 	if got := osDetector.Calls(); got != 1 {
 		t.Fatalf("expected OS detector to be called once, got %d", got)
+	}
+}
+
+func TestEngineMergesPassiveMDNSObservationsBeforeHostReady(t *testing.T) {
+	events := make(chan contracts.HostObservation, 1)
+	mdnsEvents := make(chan contracts.HostObservation, 1)
+	scanStarted := make(chan struct{})
+	releaseScan := make(chan struct{})
+	callbacks := make(chan models.HostSnapshot, 2)
+
+	engine := &Engine{
+		Opts: models.ScanOptions{
+			Subnet:      "192.168.1.0/24",
+			Timeout:     50 * time.Millisecond,
+			Concurrency: 1,
+		},
+		OnHost: func(h *models.Host) {
+			callbacks <- h.Snapshot()
+		},
+		deps: engineDependencies{
+			ouiLoader:   &countingOUILoader{},
+			icmpFactory: &stubICMPFactory{factory: errors.New("icmp unavailable in test")},
+			passiveMDNSListener: &stubPassiveMDNSListener{
+				cache:  &stubNameCache{},
+				events: mdnsEvents,
+			},
+			activeARPSweeper: &stubActiveARPSweeper{},
+			targetExpander: &stubTargetExpander{
+				spec: targetSpec{
+					seq: func(yield func(string) bool) {
+						yield("192.168.1.10")
+					},
+					total: 1,
+					contains: func(ip string) bool {
+						return ip == "192.168.1.10"
+					},
+				},
+			},
+			subnetPreheater: preheaterNoop{},
+			hostDiscoverer:  &stubHostDiscoverer{events: events},
+			portScanner: &blockingPortScanner{
+				scanStarted: scanStarted,
+				releaseScan: releaseScan,
+			},
+			hostEnricher: &countingHostEnricher{},
+			osDetector:   &stubOSDetector{},
+		},
+	}
+
+	resultCh := make(chan *models.ScanResult, 1)
+	go func() {
+		resultCh <- engine.Run(context.Background())
+	}()
+
+	events <- contracts.HostObservation{
+		IP:     "192.168.1.10",
+		Alive:  true,
+		Source: models.HostSourceICMP,
+	}
+
+	select {
+	case <-scanStarted:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for port scan to start")
+	}
+
+	mdnsEvents <- contracts.HostObservation{
+		IP:     "192.168.1.10",
+		Name:   "lab-router",
+		Alive:  true,
+		Source: models.HostSourceMDNS,
+	}
+
+	select {
+	case snapshot := <-callbacks:
+		t.Fatalf("unexpected callback before scan completed: %+v", snapshot)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(releaseScan)
+	close(events)
+	close(mdnsEvents)
+
+	var snapshot models.HostSnapshot
+	select {
+	case snapshot = <-callbacks:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for ready host callback")
+	}
+
+	if snapshot.Hostname != "lab-router" {
+		t.Fatalf("expected passive mDNS hostname to be merged before readiness, got %q", snapshot.Hostname)
+	}
+	if snapshot.Source != models.HostSourceMixed {
+		t.Fatalf("expected merged source to include mDNS, got %q", snapshot.Source)
+	}
+
+	var result *models.ScanResult
+	select {
+	case result = <-resultCh:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for engine shutdown")
+	}
+
+	if len(result.Hosts) != 1 {
+		t.Fatalf("expected one host in result, got %d", len(result.Hosts))
+	}
+	if got := result.Hosts[0].Snapshot().Hostname; got != "lab-router" {
+		t.Fatalf("expected final host snapshot to retain passive mDNS hostname, got %q", got)
+	}
+}
+
+func TestEngineFiltersPassiveMDNSObservationsOutsideTargets(t *testing.T) {
+	events := make(chan contracts.HostObservation)
+	mdnsEvents := make(chan contracts.HostObservation, 1)
+	portScanner := &blockingPortScanner{
+		scanStarted: make(chan struct{}),
+		releaseScan: closedChan(),
+	}
+
+	engine := &Engine{
+		Opts: models.ScanOptions{
+			Subnet:      "192.168.1.0/24",
+			Timeout:     50 * time.Millisecond,
+			Concurrency: 1,
+		},
+		deps: engineDependencies{
+			ouiLoader:   &countingOUILoader{},
+			icmpFactory: &stubICMPFactory{factory: errors.New("icmp unavailable in test")},
+			passiveMDNSListener: &stubPassiveMDNSListener{
+				cache:  &stubNameCache{},
+				events: mdnsEvents,
+			},
+			activeARPSweeper: &stubActiveARPSweeper{},
+			targetExpander: &stubTargetExpander{
+				spec: targetSpec{
+					seq: func(yield func(string) bool) {
+						yield("192.168.1.10")
+					},
+					total: 1,
+					contains: func(ip string) bool {
+						return ip == "192.168.1.10"
+					},
+				},
+			},
+			subnetPreheater: preheaterNoop{},
+			hostDiscoverer:  &stubHostDiscoverer{events: events},
+			portScanner:     portScanner,
+			hostEnricher:    &countingHostEnricher{},
+			osDetector:      &stubOSDetector{},
+		},
+	}
+
+	resultCh := make(chan *models.ScanResult, 1)
+	go func() {
+		resultCh <- engine.Run(context.Background())
+	}()
+
+	mdnsEvents <- contracts.HostObservation{
+		IP:     "192.168.1.88",
+		Name:   "outside-target",
+		Alive:  true,
+		Source: models.HostSourceMDNS,
+	}
+
+	close(mdnsEvents)
+	close(events)
+
+	var result *models.ScanResult
+	select {
+	case result = <-resultCh:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for engine shutdown")
+	}
+
+	if got := len(result.Hosts); got != 0 {
+		t.Fatalf("expected passive mDNS result outside targets to be ignored, got %d host(s)", got)
+	}
+	if got := portScanner.Calls(); got != 0 {
+		t.Fatalf("expected no host scans for out-of-target passive mDNS results, got %d", got)
 	}
 }
 

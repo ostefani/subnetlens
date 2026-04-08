@@ -26,14 +26,24 @@ func (c *mdnsCache) LookupName(ip string) (resolveResult, bool) {
 }
 
 func (c *mdnsCache) StoreName(ip, name string, source models.HostSource) {
+	c.storeName(ip, name, source)
+}
+
+func (c *mdnsCache) storeName(ip, name string, source models.HostSource) bool {
 	if name == "" {
-		return
+		return false
 	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if _, exists := c.names[ip]; !exists {
-		c.names[ip] = resolveResult{name: name, source: source}
+	if existing, exists := c.names[ip]; exists {
+		if existing.name == name && existing.source == source {
+			return false
+		}
+		return false
 	}
+
+	c.names[ip] = resolveResult{name: name, source: source}
+	return true
 }

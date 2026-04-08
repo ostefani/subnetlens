@@ -39,7 +39,7 @@ func NewEngine(opts models.ScanOptions, socketBudget int, options ...Option) *En
 				}
 				return s, nil
 			}),
-			passiveMDNSListener: passiveMDNSListenerFunc(func(ctx context.Context) (nameCache, error) {
+			passiveMDNSListener: passiveMDNSListenerFunc(func(ctx context.Context) (passiveMDNSSession, error) {
 				return startPassiveMDNSListener(ctx)
 			}),
 			activeARPSweeper: activeARPSweeperFunc(startActiveARPSweepWithIssues),
@@ -86,7 +86,11 @@ func (e *Engine) Run(ctx context.Context) *models.ScanResult {
 		defer icmpScanner.Close()
 	}
 
-	cache, err := deps.passiveMDNSListener.Start(runCtx)
+	discoveryCtx, cancelDiscovery := context.WithCancel(runCtx)
+	defer cancelDiscovery()
+
+	passiveMDNS, err := deps.passiveMDNSListener.Start(discoveryCtx)
+	cache := passiveMDNS.cache
 	if err != nil {
 		issues.Report(warningIssue("mdns", "passive mDNS listener unavailable: %v", err))
 	}
@@ -108,6 +112,13 @@ func (e *Engine) Run(ctx context.Context) *models.ScanResult {
 
 	discoveryRuntime := newDiscoveryRuntime(targets, socketLimiter, discoverySem, issues)
 	observationCh := e.runDiscoveryModules(runCtx, discoveryRuntime, deps, cache, icmpScanner, arpCache)
+	observationCh = mergePassiveMDNSObservations(
+		runCtx,
+		observationCh,
+		passiveMDNS.observations,
+		discoveryRuntime.Targets().Contains,
+		cancelDiscovery,
+	)
 	registry := &HostRegistry{updates: make(chan contracts.HostObservation, 512)}
 	eventCh := make(chan HostEvent, 256)
 	go registry.run(runCtx, eventCh)
@@ -151,7 +162,7 @@ func (e *Engine) Run(ctx context.Context) *models.ScanResult {
 				defer close(ready)
 
 				e.runHostScanners(runCtx, scannedHost, runtime, deps)
-				deps.hostEnricher.Enrich(scannedHost, cache, arpCache)
+				deps.hostEnricher.Enrich(scannedHost, arpCache)
 
 				e.classifyHost(scannedHost, deps)
 
@@ -165,7 +176,7 @@ func (e *Engine) Run(ctx context.Context) *models.ScanResult {
 				continue
 			}
 
-			deps.hostEnricher.Enrich(event.Host, cache, arpCache)
+			deps.hostEnricher.Enrich(event.Host, arpCache)
 
 			ready, ok := hostReady[ip]
 			if !ok {

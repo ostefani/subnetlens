@@ -21,6 +21,10 @@ type nameStore interface {
 	StoreName(ip, name string, source models.HostSource)
 }
 
+type closeableNameStore interface {
+	Close()
+}
+
 func StartPassiveListener(ctx context.Context, store nameStore) error {
 	conn, err := newSocket()
 	if err != nil {
@@ -57,6 +61,9 @@ func StartPassiveListener(ctx context.Context, store nameStore) error {
 	}
 
 	go func() {
+		if closable, ok := store.(closeableNameStore); ok {
+			defer closable.Close()
+		}
 		defer conn.Close()
 		buf := make([]byte, 1500)
 		for {

@@ -34,3 +34,54 @@ func mergeHostObservationStreams(ctx context.Context, streams ...<-chan contract
 
 	return out
 }
+
+func mergePassiveMDNSObservations(
+	ctx context.Context,
+	discovery <-chan contracts.HostObservation,
+	passive <-chan contracts.HostObservation,
+	contains func(string) bool,
+	stopPassive context.CancelFunc,
+) <-chan contracts.HostObservation {
+	if passive == nil {
+		return discovery
+	}
+
+	out := make(chan contracts.HostObservation, 256)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		defer func() {
+			if stopPassive != nil {
+				stopPassive()
+			}
+		}()
+
+		for observation := range discovery {
+			if !sendHostObservation(ctx, out, observation) {
+				return
+			}
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for observation := range passive {
+			if contains == nil || !contains(observation.IP) {
+				continue
+			}
+			if !sendHostObservation(ctx, out, observation) {
+				return
+			}
+		}
+	}()
+
+	go func() {
+		wg.Wait()
+		close(out)
+	}()
+
+	return out
+}

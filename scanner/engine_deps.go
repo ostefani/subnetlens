@@ -29,7 +29,12 @@ type icmpFactory interface {
 }
 
 type passiveMDNSListener interface {
-	Start(context.Context) (nameCache, error)
+	Start(context.Context) (passiveMDNSSession, error)
+}
+
+type passiveMDNSSession struct {
+	cache        nameCache
+	observations <-chan contracts.HostObservation
 }
 
 type activeARPSweeper interface {
@@ -53,7 +58,7 @@ type portScanner interface {
 }
 
 type hostEnricher interface {
-	Enrich(*models.Host, nameCache, *ARPCache)
+	Enrich(*models.Host, *ARPCache)
 }
 
 type osDetector interface {
@@ -85,9 +90,9 @@ func (f icmpFactoryFunc) NewICMPScanner() (icmpProber, error) {
 	return f()
 }
 
-type passiveMDNSListenerFunc func(context.Context) (nameCache, error)
+type passiveMDNSListenerFunc func(context.Context) (passiveMDNSSession, error)
 
-func (f passiveMDNSListenerFunc) Start(ctx context.Context) (nameCache, error) {
+func (f passiveMDNSListenerFunc) Start(ctx context.Context) (passiveMDNSSession, error) {
 	return f(ctx)
 }
 
@@ -134,10 +139,10 @@ func (f portScannerFunc) Scan(
 	f(ctx, host, opts, runtime)
 }
 
-type hostEnricherFunc func(*models.Host, nameCache, *ARPCache)
+type hostEnricherFunc func(*models.Host, *ARPCache)
 
-func (f hostEnricherFunc) Enrich(host *models.Host, cache nameCache, arp *ARPCache) {
-	f(host, cache, arp)
+func (f hostEnricherFunc) Enrich(host *models.Host, arp *ARPCache) {
+	f(host, arp)
 }
 
 type osDetectorFunc func([]models.Port) (string, string)

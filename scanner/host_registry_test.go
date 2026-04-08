@@ -84,7 +84,7 @@ func TestHostRegistryMergesLateARPWithoutReemit(t *testing.T) {
 		t.Fatalf("expected merged source to be mixed, got %q", snapshot.Source)
 	}
 
-	EnrichHost(host, nil, nil)
+	EnrichHost(host, nil)
 	snapshot = host.Snapshot()
 	if snapshot.Vendor != "Apple" {
 		t.Fatalf("expected vendor enrichment from MAC, got %q", snapshot.Vendor)
