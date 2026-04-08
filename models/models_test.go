@@ -112,8 +112,9 @@ func TestHostConcurrentMutationAndSnapshot(t *testing.T) {
 				errCh <- fmt.Errorf("unexpected snapshot IP %q", snapshot.IP)
 				return
 			}
-			if len(snapshot.OpenPorts) > 0 {
-				snapshot.OpenPorts[0].Number = 9999
+			openPorts := snapshot.OpenPorts()
+			if len(openPorts) > 0 {
+				openPorts[0].Number = 9999
 			}
 		}
 	}
@@ -163,48 +164,72 @@ func TestHostConcurrentMutationAndSnapshot(t *testing.T) {
 	if snapshot.SeenAt.IsZero() || snapshot.UpdatedAt.IsZero() {
 		t.Fatal("expected seen/updated timestamps to be recorded")
 	}
-	if len(snapshot.OpenPorts) != 2 {
-		t.Fatalf("expected 2 open ports, got %d", len(snapshot.OpenPorts))
+	openPorts := snapshot.OpenPorts()
+	if len(openPorts) != 2 {
+		t.Fatalf("expected 2 open ports, got %d", len(openPorts))
 	}
-	if snapshot.OpenPorts[0].Number != 22 {
-		t.Fatalf("expected snapshot ports to be copied defensively, got %d", snapshot.OpenPorts[0].Number)
+	if len(snapshot.Ports) != 2 {
+		t.Fatalf("expected 2 total ports, got %d", len(snapshot.Ports))
+	}
+	if openPorts[0].Number != 22 {
+		t.Fatalf("expected snapshot open ports to be copied defensively, got %d", openPorts[0].Number)
+	}
+	if snapshot.Ports[0].Number != 22 {
+		t.Fatalf("expected snapshot total ports to be copied defensively, got %d", snapshot.Ports[0].Number)
 	}
 
-	snapshot.OpenPorts[0].Number = 1
-	if got := host.Snapshot().OpenPorts[0].Number; got != 22 {
-		t.Fatalf("expected snapshot mutation to leave host ports unchanged, got %d", got)
+	openPorts[0].Number = 1
+	if got := host.Snapshot().OpenPorts()[0].Number; got != 22 {
+		t.Fatalf("expected open port snapshot mutation to leave host ports unchanged, got %d", got)
+	}
+	snapshot.Ports[0].Number = 1
+	if got := host.Snapshot().Ports[0].Number; got != 22 {
+		t.Fatalf("expected total snapshot mutation to leave host ports unchanged, got %d", got)
 	}
 }
 
 func TestSetProtocolPortsReplacesOnlyMatchingProtocol(t *testing.T) {
 	host := NewHost("192.168.1.20")
-	host.SetOpenPorts([]Port{
+	host.SetPorts([]Port{
 		{Number: 53, Protocol: "udp", State: PortOpen, Service: "DNS"},
+		{Number: 123, Protocol: "udp", State: PortClosed},
 		{Number: 22, Protocol: "tcp", State: PortOpen, Service: "SSH"},
 		{Number: 161, Protocol: "udp", State: PortOpen, Service: "SNMP"},
 	})
 
 	if !host.SetProtocolPorts("tcp", []Port{{
-		Number:  80,
-		State:   PortOpen,
-		Service: "HTTP",
+		Number: 80,
+		State:  PortFiltered,
 	}}) {
 		t.Fatal("expected TCP protocol ports to be replaced")
 	}
 
 	snapshot := host.Snapshot()
-	if len(snapshot.OpenPorts) != 3 {
-		t.Fatalf("expected 3 ports after protocol-scoped replacement, got %d", len(snapshot.OpenPorts))
+	if len(snapshot.Ports) != 4 {
+		t.Fatalf("expected 4 total ports after protocol-scoped replacement, got %d", len(snapshot.Ports))
+	}
+	openPorts := snapshot.OpenPorts()
+	if len(openPorts) != 2 {
+		t.Fatalf("expected 2 open ports after protocol-scoped replacement, got %d", len(openPorts))
 	}
 
-	if snapshot.OpenPorts[0].Number != 53 || snapshot.OpenPorts[0].Protocol != "udp" {
-		t.Fatalf("expected first port to preserve UDP DNS, got %+v", snapshot.OpenPorts[0])
+	if snapshot.Ports[0].Number != 53 || snapshot.Ports[0].Protocol != "udp" || snapshot.Ports[0].State != PortOpen {
+		t.Fatalf("expected first total port to preserve UDP DNS, got %+v", snapshot.Ports[0])
 	}
-	if snapshot.OpenPorts[1].Number != 80 || snapshot.OpenPorts[1].Protocol != "tcp" {
-		t.Fatalf("expected TCP replacement to normalize protocol and sort ports, got %+v", snapshot.OpenPorts[1])
+	if snapshot.Ports[1].Number != 80 || snapshot.Ports[1].Protocol != "tcp" || snapshot.Ports[1].State != PortFiltered {
+		t.Fatalf("expected TCP replacement to normalize protocol and keep filtered state, got %+v", snapshot.Ports[1])
 	}
-	if snapshot.OpenPorts[2].Number != 161 || snapshot.OpenPorts[2].Protocol != "udp" {
-		t.Fatalf("expected second UDP port to remain untouched, got %+v", snapshot.OpenPorts[2])
+	if snapshot.Ports[2].Number != 123 || snapshot.Ports[2].Protocol != "udp" || snapshot.Ports[2].State != PortClosed {
+		t.Fatalf("expected closed UDP port to remain in total ports, got %+v", snapshot.Ports[2])
+	}
+	if snapshot.Ports[3].Number != 161 || snapshot.Ports[3].Protocol != "udp" || snapshot.Ports[3].State != PortOpen {
+		t.Fatalf("expected second open UDP port to remain untouched, got %+v", snapshot.Ports[3])
+	}
+	if openPorts[0].Number != 53 || openPorts[0].Protocol != "udp" {
+		t.Fatalf("expected first open port to preserve UDP DNS, got %+v", openPorts[0])
+	}
+	if openPorts[1].Number != 161 || openPorts[1].Protocol != "udp" {
+		t.Fatalf("expected second open port to remain untouched, got %+v", openPorts[1])
 	}
 }
 
@@ -241,10 +266,41 @@ func TestAddPortUpsertsExistingPort(t *testing.T) {
 	}
 
 	snapshot := host.Snapshot()
-	if len(snapshot.OpenPorts) != 1 {
-		t.Fatalf("expected one merged port, got %d", len(snapshot.OpenPorts))
+	openPorts := snapshot.OpenPorts()
+	if len(openPorts) != 1 {
+		t.Fatalf("expected one merged port, got %d", len(openPorts))
 	}
-	if snapshot.OpenPorts[0].Service != "SNMP" || snapshot.OpenPorts[0].Banner != "public" {
-		t.Fatalf("expected updated port evidence to win, got %+v", snapshot.OpenPorts[0])
+	if len(snapshot.Ports) != 1 {
+		t.Fatalf("expected one merged total port, got %d", len(snapshot.Ports))
+	}
+	if openPorts[0].Service != "SNMP" || openPorts[0].Banner != "public" {
+		t.Fatalf("expected updated port evidence to win, got %+v", openPorts[0])
+	}
+	if snapshot.Ports[0].Service != "SNMP" || snapshot.Ports[0].Banner != "public" {
+		t.Fatalf("expected updated total port evidence to win, got %+v", snapshot.Ports[0])
+	}
+}
+
+func TestSetPortsDerivesOpenPorts(t *testing.T) {
+	host := NewHost("192.168.1.20")
+
+	if !host.SetPorts([]Port{
+		{Number: 53, Protocol: "udp", State: PortOpen, Service: "DNS"},
+		{Number: 80, Protocol: "tcp", State: PortClosed},
+		{Number: 123, Protocol: "udp", State: PortFiltered},
+	}) {
+		t.Fatal("expected total port replacement to succeed")
+	}
+
+	snapshot := host.Snapshot()
+	if len(snapshot.Ports) != 3 {
+		t.Fatalf("expected 3 total ports, got %d", len(snapshot.Ports))
+	}
+	openPorts := snapshot.OpenPorts()
+	if len(openPorts) != 1 {
+		t.Fatalf("expected 1 derived open port, got %d", len(openPorts))
+	}
+	if openPorts[0].Number != 53 || openPorts[0].Protocol != "udp" {
+		t.Fatalf("expected DNS to remain in derived open ports, got %+v", openPorts[0])
 	}
 }

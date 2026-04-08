@@ -383,7 +383,7 @@ func hostTableRow(snapshot models.HostSnapshot) []string {
 		truncateCell(displayVendor(snapshot.Vendor), vendorColumnWidth-2),
 		hostOSLabel(snapshot.OS),
 		truncateCell(displayDevice(snapshot.Device), deviceColumnWidth-2),
-		formatPorts(snapshot.OpenPorts),
+		formatPorts(snapshot.OpenPorts()),
 	}
 }
 
