@@ -599,8 +599,9 @@ func TestEngineCoordinatesHostUpdatesWithScanCompletion(t *testing.T) {
 	if first.Device != "Router" {
 		t.Fatalf("expected detected device Router, got %q", first.Device)
 	}
-	if len(first.OpenPorts) != 1 || first.OpenPorts[0].Number != 22 {
-		t.Fatalf("expected port scan results to be published after readiness, got %+v", first.OpenPorts)
+	openPorts := first.OpenPorts()
+	if len(openPorts) != 1 || openPorts[0].Number != 22 {
+		t.Fatalf("expected port scan results to be published after readiness, got %+v", openPorts)
 	}
 
 	events <- contracts.HostObservation{
@@ -976,8 +977,9 @@ func TestEngineUsesRegisteredHostScannerAndClassifier(t *testing.T) {
 	if snapshot.Device != "Managed Device" {
 		t.Fatalf("expected registered classifier device, got %q", snapshot.Device)
 	}
-	if len(snapshot.OpenPorts) != 1 || snapshot.OpenPorts[0].Protocol != "udp" {
-		t.Fatalf("expected registered scanner ports to be published, got %+v", snapshot.OpenPorts)
+	openPorts := snapshot.OpenPorts()
+	if len(openPorts) != 1 || openPorts[0].Protocol != "udp" {
+		t.Fatalf("expected registered scanner ports to be published, got %+v", openPorts)
 	}
 }
 
@@ -1054,14 +1056,15 @@ func TestEngineMergesPortsAcrossProtocolScopedHostScanners(t *testing.T) {
 	}
 
 	snapshot := result.Hosts[0].Snapshot()
-	if len(snapshot.OpenPorts) != 2 {
-		t.Fatalf("expected both protocol scanners to contribute ports, got %+v", snapshot.OpenPorts)
+	openPorts := snapshot.OpenPorts()
+	if len(openPorts) != 2 {
+		t.Fatalf("expected both protocol scanners to contribute ports, got %+v", openPorts)
 	}
-	if snapshot.OpenPorts[0].Number != 22 || snapshot.OpenPorts[0].Protocol != "tcp" {
-		t.Fatalf("expected sorted TCP port first, got %+v", snapshot.OpenPorts[0])
+	if openPorts[0].Number != 22 || openPorts[0].Protocol != "tcp" {
+		t.Fatalf("expected sorted TCP port first, got %+v", openPorts[0])
 	}
-	if snapshot.OpenPorts[1].Number != 161 || snapshot.OpenPorts[1].Protocol != "udp" {
-		t.Fatalf("expected UDP port to be preserved, got %+v", snapshot.OpenPorts[1])
+	if openPorts[1].Number != 161 || openPorts[1].Protocol != "udp" {
+		t.Fatalf("expected UDP port to be preserved, got %+v", openPorts[1])
 	}
 }
 

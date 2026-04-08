@@ -237,17 +237,19 @@ func (e *Engine) runHostScanners(
 func (e *Engine) classifyHost(host *models.Host, deps engineDependencies) {
 	if len(e.hostClassifiers) == 0 {
 		snapshot := host.Snapshot()
-		detectedOS, detectedDevice := deps.osDetector.Detect(snapshot.OpenPorts)
+		openPorts := snapshot.OpenPorts()
+		detectedOS, detectedDevice := deps.osDetector.Detect(openPorts)
 		host.SetOS(detectedOS)
 		host.SetDeviceIfEmpty(detectedDevice)
 		return
 	}
 
 	snapshot := host.Snapshot()
+	openPorts := snapshot.OpenPorts()
 	hostOS := ""
 	device := ""
 	for _, classifier := range e.hostClassifiers {
-		detectedOS, detectedDevice := classifier.ClassifyHost(snapshot.OpenPorts)
+		detectedOS, detectedDevice := classifier.ClassifyHost(openPorts)
 		if detectedOS != "" {
 			hostOS = detectedOS
 		}

@@ -55,9 +55,7 @@ Loop:
 			defer runtime.ReleaseScanSlot()
 
 			p := probePort(ctx, snapshot.IP, portNum, opts, runtime.SocketLimiter())
-			if p.State == models.PortOpen {
-				resultCh <- p
-			}
+			resultCh <- p
 		}(port)
 	}
 

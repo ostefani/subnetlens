@@ -102,16 +102,23 @@ func TestRenderSummaryUsesStyledLayout(t *testing.T) {
 }
 
 func TestFormatPortsIncludesProtocol(t *testing.T) {
-	formatted := ansi.Strip(formatPorts([]models.Port{
-		{Number: 53, Protocol: "udp", Service: "DNS"},
-		{Number: 443, Protocol: "tcp", Service: "HTTPS"},
-	}))
+	snapshot := models.HostSnapshot{
+		Ports: []models.Port{
+			{Number: 53, Protocol: "udp", State: models.PortOpen, Service: "DNS"},
+			{Number: 443, Protocol: "tcp", State: models.PortOpen, Service: "HTTPS"},
+			{Number: 161, Protocol: "udp", State: models.PortClosed},
+		},
+	}
+	formatted := ansi.Strip(formatPorts(snapshot.OpenPorts()))
 
 	if !strings.Contains(formatted, "53/udp DNS") {
 		t.Fatalf("expected UDP port label to include protocol, got %q", formatted)
 	}
 	if !strings.Contains(formatted, "443/tcp HTTPS") {
 		t.Fatalf("expected TCP port label to include protocol, got %q", formatted)
+	}
+	if strings.Contains(formatted, "161/udp") {
+		t.Fatalf("expected non-open ports to stay out of the open-port formatter, got %q", formatted)
 	}
 }
 

@@ -77,14 +77,14 @@ func (i ScanIssue) String() string {
 type Host struct {
 	mu sync.RWMutex
 
-	ip        string
-	Hostname  string
-	MAC       string
-	Vendor    string
-	Latency   time.Duration
-	OpenPorts []Port
-	OS        string
-	Device    string
+	ip       string
+	Hostname string
+	MAC      string
+	Vendor   string
+	Latency  time.Duration
+	Ports    []Port
+	OS       string
+	Device   string
 
 	SeenAt    time.Time
 	UpdatedAt time.Time
@@ -99,7 +99,7 @@ type HostSnapshot struct {
 	MAC       string
 	Vendor    string
 	Latency   time.Duration
-	OpenPorts []Port
+	Ports     []Port
 	OS        string
 	Device    string
 	SeenAt    time.Time
@@ -147,11 +147,15 @@ func (h *Host) Snapshot() HostSnapshot {
 		Source:    h.Source,
 		Alive:     h.alive,
 	}
-	if len(h.OpenPorts) > 0 {
-		snapshot.OpenPorts = append([]Port(nil), h.OpenPorts...)
+	if len(h.Ports) > 0 {
+		snapshot.Ports = append([]Port(nil), h.Ports...)
 	}
 
 	return snapshot
+}
+
+func (s HostSnapshot) OpenPorts() []Port {
+	return filterOpenPorts(s.Ports)
 }
 
 func (h *Host) MarkSeen(source HostSource) bool {
@@ -385,7 +389,7 @@ func (h *Host) SetLatencyIfZero(latency time.Duration) bool {
 	return true
 }
 
-func (h *Host) SetOpenPorts(ports []Port) bool {
+func (h *Host) SetPorts(ports []Port) bool {
 	if h == nil {
 		return false
 	}
@@ -396,12 +400,16 @@ func (h *Host) SetOpenPorts(ports []Port) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if portsEqual(h.OpenPorts, copied) {
+	if portsEqual(h.Ports, copied) {
 		return false
 	}
 
-	h.OpenPorts = copied
+	h.Ports = copied
 	return true
+}
+
+func (h *Host) SetOpenPorts(ports []Port) bool {
+	return h.SetPorts(filterOpenPorts(ports))
 }
 
 // SetProtocolPorts replaces the host's ports for one protocol while preserving
@@ -420,8 +428,8 @@ func (h *Host) SetProtocolPorts(protocol string, ports []Port) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	merged := make([]Port, 0, len(h.OpenPorts)+len(replacement))
-	for _, existing := range h.OpenPorts {
+	merged := make([]Port, 0, len(h.Ports)+len(replacement))
+	for _, existing := range h.Ports {
 		if existing.Protocol == protocol {
 			continue
 		}
@@ -430,11 +438,11 @@ func (h *Host) SetProtocolPorts(protocol string, ports []Port) bool {
 	merged = append(merged, replacement...)
 	sortPorts(merged)
 
-	if portsEqual(h.OpenPorts, merged) {
+	if portsEqual(h.Ports, merged) {
 		return false
 	}
 
-	h.OpenPorts = merged
+	h.Ports = merged
 	return true
 }
 
@@ -446,13 +454,30 @@ func (h *Host) AddPort(port Port) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	merged, changed := upsertPort(h.OpenPorts, port)
+	merged, changed := upsertPort(h.Ports, port)
 	if !changed {
 		return false
 	}
 
-	h.OpenPorts = merged
+	h.Ports = merged
 	return true
+}
+
+func filterOpenPorts(ports []Port) []Port {
+	if len(ports) == 0 {
+		return nil
+	}
+
+	openPorts := make([]Port, 0, len(ports))
+	for _, port := range ports {
+		if port.State == PortOpen {
+			openPorts = append(openPorts, port)
+		}
+	}
+	if len(openPorts) == 0 {
+		return nil
+	}
+	return openPorts
 }
 
 func portsEqual(a, b []Port) bool {

@@ -191,7 +191,7 @@ func printPlainHost(snapshot models.HostSnapshot) {
 	// Snapshot contains the authoritative host state after all updates settle.
 	fmt.Printf("\n[+] %-18s  %s\n", snapshot.IP, snapshot.Hostname)
 	fmt.Printf("    OS: %-20s  Device: %-25s  Vendor: %s\n", hostOS, device, vendor)
-	for _, p := range snapshot.OpenPorts {
+	for _, p := range snapshot.OpenPorts() {
 		service := p.Service
 		if service == "" {
 			service = "—"
