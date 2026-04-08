@@ -1,6 +1,6 @@
 //go:build darwin
 
-package scanner
+package arp
 
 import (
 	"context"
@@ -12,9 +12,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func activeARPSupported() bool { return true }
+func activeSupported() bool { return true }
 
-type arpSenderDarwin struct {
+type senderDarwin struct {
 	fd     int
 	srcMAC net.HardwareAddr
 	srcIP  net.IP
@@ -22,12 +22,10 @@ type arpSenderDarwin struct {
 
 type bpfIfreq struct {
 	Name [unix.IFNAMSIZ]byte
-	// BIOCSETIF expects a full Darwin struct ifreq. Only ifr_name matters for
-	// this ioctl, but the kernel still copies sizeof(struct ifreq) bytes.
-	Pad [16]byte
+	Pad  [16]byte
 }
 
-func newARPSender(iface *net.Interface, srcIP net.IP) (arpSender, error) {
+func newSender(iface *net.Interface, srcIP net.IP) (sender, error) {
 	if iface == nil {
 		return nil, fmt.Errorf("nil interface")
 	}
@@ -63,28 +61,28 @@ func newARPSender(iface *net.Interface, srcIP net.IP) (arpSender, error) {
 
 	_ = unix.SetNonblock(fd, true)
 
-	return &arpSenderDarwin{
+	return &senderDarwin{
 		fd:     fd,
 		srcMAC: iface.HardwareAddr,
 		srcIP:  ip4,
 	}, nil
 }
 
-func (s *arpSenderDarwin) Send(targetIP net.IP) error {
+func (s *senderDarwin) Send(targetIP net.IP) error {
 	ip4 := targetIP.To4()
 	if ip4 == nil {
 		return fmt.Errorf("invalid target ip")
 	}
-	frame := buildARPRequest(s.srcMAC, s.srcIP, ip4)
+	frame := buildRequest(s.srcMAC, s.srcIP, ip4)
 	_, err := unix.Write(s.fd, frame)
 	return err
 }
 
-func (s *arpSenderDarwin) Close() error {
+func (s *senderDarwin) Close() error {
 	return unix.Close(s.fd)
 }
 
-func (s *arpSenderDarwin) Listen(ctx context.Context, inject func(net.IP, net.HardwareAddr)) {
+func (s *senderDarwin) Listen(ctx context.Context, inject func(net.IP, net.HardwareAddr), logf Logger) {
 	bufLen := getBPFBufferLength(s.fd)
 	if bufLen < 256 {
 		bufLen = 4096
@@ -100,7 +98,7 @@ func (s *arpSenderDarwin) Listen(ctx context.Context, inject func(net.IP, net.Ha
 			if err == unix.EAGAIN || err == unix.EWOULDBLOCK || err == unix.EINTR {
 				continue
 			}
-			debugLog("arp", "active sweep recv error: %v", err)
+			log(logf, "active sweep recv error: %v", err)
 			continue
 		}
 		if n <= 0 {
@@ -148,7 +146,6 @@ func getBPFBufferLength(fd int) int {
 }
 
 func parseBPFFrames(buf []byte, handle func([]byte)) int {
-	// Darwin BPF timeval is two 32-bit integers (8 bytes), rather than the 16-byte unix.Timeval.
 	tvSize := 8
 	offset := 0
 	frames := 0

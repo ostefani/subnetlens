@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ostefani/subnetlens/models"
+	"github.com/ostefani/subnetlens/scanner/contracts"
 )
 
 type nameCache interface {
@@ -28,11 +29,11 @@ type icmpFactory interface {
 }
 
 type passiveMDNSListener interface {
-	Start(context.Context) nameCache
+	Start(context.Context) (nameCache, error)
 }
 
 type activeARPSweeper interface {
-	Start(context.Context, string, *ARPCache)
+	Start(context.Context, string, *ARPCache, issueReporter)
 }
 
 type targetExpander interface {
@@ -44,11 +45,11 @@ type subnetPreheater interface {
 }
 
 type hostDiscoverer interface {
-	Discover(context.Context, models.ScanOptions, func(done, total int), nameCache, icmpProber, *ARPCache, *socketLimiter) <-chan HostEvent
+	Discover(context.Context, models.ScanOptions, func(done, total int), nameCache, icmpProber, *ARPCache, *socketLimiter, issueReporter) <-chan HostEvent
 }
 
 type portScanner interface {
-	Scan(context.Context, *models.Host, models.ScanOptions, chan struct{}, *socketLimiter)
+	Scan(context.Context, *models.Host, models.ScanOptions, contracts.Runtime)
 }
 
 type hostEnricher interface {
@@ -84,16 +85,16 @@ func (f icmpFactoryFunc) NewICMPScanner() (icmpProber, error) {
 	return f()
 }
 
-type passiveMDNSListenerFunc func(context.Context) nameCache
+type passiveMDNSListenerFunc func(context.Context) (nameCache, error)
 
-func (f passiveMDNSListenerFunc) Start(ctx context.Context) nameCache {
+func (f passiveMDNSListenerFunc) Start(ctx context.Context) (nameCache, error) {
 	return f(ctx)
 }
 
-type activeARPSweeperFunc func(context.Context, string, *ARPCache)
+type activeARPSweeperFunc func(context.Context, string, *ARPCache, issueReporter)
 
-func (f activeARPSweeperFunc) Start(ctx context.Context, target string, cache *ARPCache) {
-	f(ctx, target, cache)
+func (f activeARPSweeperFunc) Start(ctx context.Context, target string, cache *ARPCache, issues issueReporter) {
+	f(ctx, target, cache, issues)
 }
 
 type targetExpanderFunc func(string) (targetSpec, error)
@@ -108,7 +109,7 @@ func (f subnetPreheaterFunc) Preheat(ctx context.Context, ips iter.Seq[string], 
 	f(ctx, ips, total, icmp)
 }
 
-type hostDiscovererFunc func(context.Context, models.ScanOptions, func(done, total int), nameCache, icmpProber, *ARPCache, *socketLimiter) <-chan HostEvent
+type hostDiscovererFunc func(context.Context, models.ScanOptions, func(done, total int), nameCache, icmpProber, *ARPCache, *socketLimiter, issueReporter) <-chan HostEvent
 
 func (f hostDiscovererFunc) Discover(
 	ctx context.Context,
@@ -118,20 +119,20 @@ func (f hostDiscovererFunc) Discover(
 	icmp icmpProber,
 	arpCache *ARPCache,
 	socketLimiter *socketLimiter,
+	issues issueReporter,
 ) <-chan HostEvent {
-	return f(ctx, opts, progress, cache, icmp, arpCache, socketLimiter)
+	return f(ctx, opts, progress, cache, icmp, arpCache, socketLimiter, issues)
 }
 
-type portScannerFunc func(context.Context, *models.Host, models.ScanOptions, chan struct{}, *socketLimiter)
+type portScannerFunc func(context.Context, *models.Host, models.ScanOptions, contracts.Runtime)
 
 func (f portScannerFunc) Scan(
 	ctx context.Context,
 	host *models.Host,
 	opts models.ScanOptions,
-	sem chan struct{},
-	socketLimiter *socketLimiter,
+	runtime contracts.Runtime,
 ) {
-	f(ctx, host, opts, sem, socketLimiter)
+	f(ctx, host, opts, runtime)
 }
 
 type hostEnricherFunc func(*models.Host, nameCache, *ARPCache)

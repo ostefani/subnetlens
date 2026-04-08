@@ -104,6 +104,9 @@ func runPlain(opts models.ScanOptions, socketBudget int, warnings []string) erro
 	eng.OnProgress = func(done, total int) {
 		fmt.Fprintf(os.Stderr, "\r  Probing hosts: %d/%d", done, total)
 	}
+	eng.OnIssue = func(issue models.ScanIssue) {
+		fmt.Fprintf(os.Stderr, "\n%s\n", issue.String())
+	}
 	eng.OnHost = func(h *models.Host) {
 		snapshot := h.Snapshot()
 
@@ -189,7 +192,11 @@ func printPlainHost(snapshot models.HostSnapshot) {
 	fmt.Printf("\n[+] %-18s  %s\n", snapshot.IP, snapshot.Hostname)
 	fmt.Printf("    OS: %-20s  Device: %-25s  Vendor: %s\n", hostOS, device, vendor)
 	for _, p := range snapshot.OpenPorts {
-		fmt.Printf("    %-6d %-10s %s\n", p.Number, p.Service, p.Banner)
+		service := p.Service
+		if service == "" {
+			service = "—"
+		}
+		fmt.Printf("    %-6d %-5s %-10s %s\n", p.Number, p.Protocol, service, p.Banner)
 	}
 }
 

@@ -1,6 +1,7 @@
 package models
 
 import (
+	"slices"
 	"sync"
 	"time"
 
@@ -45,6 +46,32 @@ const (
 	HostSourceSelf  HostSource = "self"
 	HostSourceMixed HostSource = "mixed"
 )
+
+type ScanIssueLevel string
+
+const (
+	ScanIssueLevelWarning ScanIssueLevel = "warning"
+)
+
+type ScanIssue struct {
+	At      time.Time
+	Level   ScanIssueLevel
+	Source  string
+	Message string
+}
+
+func (i ScanIssue) String() string {
+	switch {
+	case i.Source != "" && i.Level != "":
+		return string(i.Level) + " [" + i.Source + "]: " + i.Message
+	case i.Source != "":
+		return "[" + i.Source + "]: " + i.Message
+	case i.Level != "":
+		return string(i.Level) + ": " + i.Message
+	default:
+		return i.Message
+	}
+}
 
 type Host struct {
 	mu sync.RWMutex
@@ -363,24 +390,50 @@ func (h *Host) SetOpenPorts(ports []Port) bool {
 	}
 
 	copied := append([]Port(nil), ports...)
+	sortPorts(copied)
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if len(h.OpenPorts) == len(copied) {
-		same := true
-		for i := range copied {
-			if h.OpenPorts[i] != copied[i] {
-				same = false
-				break
-			}
-		}
-		if same {
-			return false
-		}
+	if portsEqual(h.OpenPorts, copied) {
+		return false
 	}
 
 	h.OpenPorts = copied
+	return true
+}
+
+// SetProtocolPorts replaces the host's ports for one protocol while preserving
+// any ports discovered for other protocols.
+func (h *Host) SetProtocolPorts(protocol string, ports []Port) bool {
+	if h == nil || protocol == "" {
+		return false
+	}
+
+	replacement := append([]Port(nil), ports...)
+	for i := range replacement {
+		replacement[i].Protocol = protocol
+	}
+	sortPorts(replacement)
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	merged := make([]Port, 0, len(h.OpenPorts)+len(replacement))
+	for _, existing := range h.OpenPorts {
+		if existing.Protocol == protocol {
+			continue
+		}
+		merged = append(merged, existing)
+	}
+	merged = append(merged, replacement...)
+	sortPorts(merged)
+
+	if portsEqual(h.OpenPorts, merged) {
+		return false
+	}
+
+	h.OpenPorts = merged
 	return true
 }
 
@@ -392,13 +445,63 @@ func (h *Host) AddPort(port Port) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	for _, existing := range h.OpenPorts {
-		if existing.Number == port.Number && existing.Protocol == port.Protocol {
+	merged, changed := upsertPort(h.OpenPorts, port)
+	if !changed {
+		return false
+	}
+
+	h.OpenPorts = merged
+	return true
+}
+
+func portsEqual(a, b []Port) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
 			return false
 		}
 	}
-	h.OpenPorts = append(h.OpenPorts, port)
 	return true
+}
+
+func sortPorts(ports []Port) {
+	slices.SortFunc(ports, func(a, b Port) int {
+		if a.Number != b.Number {
+			if a.Number < b.Number {
+				return -1
+			}
+			return 1
+		}
+		switch {
+		case a.Protocol < b.Protocol:
+			return -1
+		case a.Protocol > b.Protocol:
+			return 1
+		default:
+			return 0
+		}
+	})
+}
+
+func upsertPort(ports []Port, port Port) ([]Port, bool) {
+	merged := append([]Port(nil), ports...)
+	for i, existing := range merged {
+		if existing.Number != port.Number || existing.Protocol != port.Protocol {
+			continue
+		}
+		if existing == port {
+			return ports, false
+		}
+		merged[i] = port
+		sortPorts(merged)
+		return merged, true
+	}
+
+	merged = append(merged, port)
+	sortPorts(merged)
+	return merged, true
 }
 
 type ScanResult struct {
@@ -406,6 +509,7 @@ type ScanResult struct {
 	StartedAt  time.Time
 	FinishedAt time.Time
 	Hosts      []*Host
+	Issues     []ScanIssue
 }
 
 func (r *ScanResult) Duration() time.Duration {

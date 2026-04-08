@@ -175,3 +175,76 @@ func TestHostConcurrentMutationAndSnapshot(t *testing.T) {
 		t.Fatalf("expected snapshot mutation to leave host ports unchanged, got %d", got)
 	}
 }
+
+func TestSetProtocolPortsReplacesOnlyMatchingProtocol(t *testing.T) {
+	host := NewHost("192.168.1.20")
+	host.SetOpenPorts([]Port{
+		{Number: 53, Protocol: "udp", State: PortOpen, Service: "DNS"},
+		{Number: 22, Protocol: "tcp", State: PortOpen, Service: "SSH"},
+		{Number: 161, Protocol: "udp", State: PortOpen, Service: "SNMP"},
+	})
+
+	if !host.SetProtocolPorts("tcp", []Port{{
+		Number:  80,
+		State:   PortOpen,
+		Service: "HTTP",
+	}}) {
+		t.Fatal("expected TCP protocol ports to be replaced")
+	}
+
+	snapshot := host.Snapshot()
+	if len(snapshot.OpenPorts) != 3 {
+		t.Fatalf("expected 3 ports after protocol-scoped replacement, got %d", len(snapshot.OpenPorts))
+	}
+
+	if snapshot.OpenPorts[0].Number != 53 || snapshot.OpenPorts[0].Protocol != "udp" {
+		t.Fatalf("expected first port to preserve UDP DNS, got %+v", snapshot.OpenPorts[0])
+	}
+	if snapshot.OpenPorts[1].Number != 80 || snapshot.OpenPorts[1].Protocol != "tcp" {
+		t.Fatalf("expected TCP replacement to normalize protocol and sort ports, got %+v", snapshot.OpenPorts[1])
+	}
+	if snapshot.OpenPorts[2].Number != 161 || snapshot.OpenPorts[2].Protocol != "udp" {
+		t.Fatalf("expected second UDP port to remain untouched, got %+v", snapshot.OpenPorts[2])
+	}
+}
+
+func TestAddPortUpsertsExistingPort(t *testing.T) {
+	host := NewHost("192.168.1.20")
+
+	if !host.AddPort(Port{
+		Number:   161,
+		Protocol: "udp",
+		State:    PortOpen,
+		Service:  "unknown",
+	}) {
+		t.Fatal("expected first port insert to succeed")
+	}
+
+	if !host.AddPort(Port{
+		Number:   161,
+		Protocol: "udp",
+		State:    PortOpen,
+		Service:  "SNMP",
+		Banner:   "public",
+	}) {
+		t.Fatal("expected matching port to be updated with richer evidence")
+	}
+
+	if host.AddPort(Port{
+		Number:   161,
+		Protocol: "udp",
+		State:    PortOpen,
+		Service:  "SNMP",
+		Banner:   "public",
+	}) {
+		t.Fatal("expected identical port update to be ignored")
+	}
+
+	snapshot := host.Snapshot()
+	if len(snapshot.OpenPorts) != 1 {
+		t.Fatalf("expected one merged port, got %d", len(snapshot.OpenPorts))
+	}
+	if snapshot.OpenPorts[0].Service != "SNMP" || snapshot.OpenPorts[0].Banner != "public" {
+		t.Fatalf("expected updated port evidence to win, got %+v", snapshot.OpenPorts[0])
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ostefani/subnetlens/models"
+	"github.com/ostefani/subnetlens/scanner/contracts"
 )
 
 type countingOUILoader struct {
@@ -83,13 +84,14 @@ type stubPassiveMDNSListener struct {
 	mu    sync.Mutex
 	calls int
 	cache nameCache
+	err   error
 }
 
-func (m *stubPassiveMDNSListener) Start(context.Context) nameCache {
+func (m *stubPassiveMDNSListener) Start(context.Context) (nameCache, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.calls++
-	return m.cache
+	return m.cache, m.err
 }
 
 func (m *stubPassiveMDNSListener) Calls() int {
@@ -104,7 +106,7 @@ type stubActiveARPSweeper struct {
 	lastTarget string
 }
 
-func (m *stubActiveARPSweeper) Start(_ context.Context, target string, _ *ARPCache) {
+func (m *stubActiveARPSweeper) Start(_ context.Context, target string, _ *ARPCache, _ issueReporter) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.calls++
@@ -180,6 +182,7 @@ func (m *stubHostDiscoverer) Discover(
 	_ icmpProber,
 	_ *ARPCache,
 	_ *socketLimiter,
+	_ issueReporter,
 ) <-chan HostEvent {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -205,8 +208,7 @@ func (m *blockingPortScanner) Scan(
 	ctx context.Context,
 	host *models.Host,
 	_ models.ScanOptions,
-	_ chan struct{},
-	_ *socketLimiter,
+	_ contracts.Runtime,
 ) {
 	m.mu.Lock()
 	m.calls++
@@ -220,11 +222,10 @@ func (m *blockingPortScanner) Scan(
 	case <-m.releaseScan:
 	}
 
-	host.SetOpenPorts([]models.Port{{
-		Number:   22,
-		Protocol: "tcp",
-		State:    models.PortOpen,
-		Service:  "SSH",
+	host.SetProtocolPorts("tcp", []models.Port{{
+		Number:  22,
+		State:   models.PortOpen,
+		Service: "SSH",
 	}})
 }
 
@@ -269,6 +270,147 @@ func (m *stubOSDetector) Calls() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.calls
+}
+
+type registeredHostScanner struct {
+	mu             sync.Mutex
+	calls          int
+	socketBudgetOK bool
+}
+
+func (m *registeredHostScanner) ScanHost(ctx context.Context, host *models.Host, _ models.ScanOptions, runtime contracts.Runtime) {
+	m.mu.Lock()
+	m.calls++
+	m.mu.Unlock()
+
+	if err := runtime.AcquireScanSlot(ctx); err == nil {
+		runtime.ReleaseScanSlot()
+	}
+
+	if limiter := runtime.SocketLimiter(); limiter != nil {
+		if err := limiter.Acquire(ctx); err == nil {
+			m.mu.Lock()
+			m.socketBudgetOK = true
+			m.mu.Unlock()
+			limiter.Release()
+		}
+	}
+
+	host.SetProtocolPorts("udp", []models.Port{{
+		Number:  161,
+		State:   models.PortOpen,
+		Service: "SNMP",
+	}})
+}
+
+func (m *registeredHostScanner) Calls() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.calls
+}
+
+func (m *registeredHostScanner) SocketBudgetOK() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.socketBudgetOK
+}
+
+type protocolHostScanner struct {
+	mu       sync.Mutex
+	calls    int
+	protocol string
+	ports    []models.Port
+}
+
+func (m *protocolHostScanner) ScanHost(_ context.Context, host *models.Host, _ models.ScanOptions, _ contracts.Runtime) {
+	m.mu.Lock()
+	m.calls++
+	m.mu.Unlock()
+
+	host.SetProtocolPorts(m.protocol, m.ports)
+}
+
+func (m *protocolHostScanner) Calls() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.calls
+}
+
+type registeredHostClassifier struct {
+	mu     sync.Mutex
+	calls  int
+	hostOS string
+	device string
+}
+
+func (m *registeredHostClassifier) ClassifyHost([]models.Port) (string, string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.calls++
+	return m.hostOS, m.device
+}
+
+func (m *registeredHostClassifier) Calls() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.calls
+}
+
+func TestEngineReportsNonFatalIssues(t *testing.T) {
+	var mu sync.Mutex
+	var got []models.ScanIssue
+	engine := &Engine{
+		Opts: models.ScanOptions{
+			Subnet:      "bad-subnet",
+			Timeout:     50 * time.Millisecond,
+			Concurrency: 1,
+		},
+		OnIssue: func(issue models.ScanIssue) {
+			mu.Lock()
+			got = append(got, issue)
+			mu.Unlock()
+		},
+		deps: engineDependencies{
+			ouiLoader:           &countingOUILoader{err: errors.New("missing oui data")},
+			icmpFactory:         &stubICMPFactory{factory: errors.New("raw socket denied")},
+			passiveMDNSListener: &stubPassiveMDNSListener{cache: &stubNameCache{}, err: errors.New("bind failed")},
+			activeARPSweeper:    &stubActiveARPSweeper{},
+			targetExpander:      &stubTargetExpander{err: errors.New("bad subnet")},
+			subnetPreheater:     preheaterNoop{},
+			hostDiscoverer:      hostDiscovererFunc(DiscoverHosts),
+			portScanner: &blockingPortScanner{
+				scanStarted: make(chan struct{}),
+				releaseScan: closedChan(),
+			},
+			hostEnricher: &countingHostEnricher{},
+			osDetector:   &stubOSDetector{},
+		},
+	}
+
+	result := engine.Run(context.Background())
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(got) != 4 {
+		t.Fatalf("expected 4 non-fatal issues, got %d: %+v", len(got), got)
+	}
+	if len(result.Issues) != len(got) {
+		t.Fatalf("expected result issues to mirror callback count, got %d vs %d", len(result.Issues), len(got))
+	}
+
+	wantSources := []string{"oui", "icmp", "mdns", "discovery"}
+	for i, source := range wantSources {
+		if got[i].Source != source {
+			t.Fatalf("expected issue %d source %q, got %q", i, source, got[i].Source)
+		}
+		if got[i].Level != models.ScanIssueLevelWarning {
+			t.Fatalf("expected issue %d level warning, got %q", i, got[i].Level)
+		}
+		if got[i].At.IsZero() {
+			t.Fatalf("expected issue %d timestamp to be set", i)
+		}
+	}
 }
 
 func TestEngineCoordinatesHostUpdatesWithScanCompletion(t *testing.T) {
@@ -482,4 +624,176 @@ func TestEngineSkipsPreheatingWhenTargetExpansionFails(t *testing.T) {
 	if len(result.Hosts) != 0 {
 		t.Fatalf("expected no hosts when discoverer emits nothing, got %d", len(result.Hosts))
 	}
+}
+
+func TestEngineUsesRegisteredHostScannerAndClassifier(t *testing.T) {
+	events := make(chan HostEvent, 1)
+	host := models.NewHost("192.168.1.44")
+	events <- HostEvent{Type: HostDiscovered, Host: host}
+	close(events)
+
+	discoverer := &stubHostDiscoverer{events: events}
+	fallbackPortScanner := &blockingPortScanner{
+		scanStarted: make(chan struct{}),
+		releaseScan: closedChan(),
+	}
+	fallbackClassifier := &stubOSDetector{
+		hostOS: "fallback-os",
+		device: "fallback-device",
+	}
+	registeredScanner := &registeredHostScanner{}
+	registeredClassifier := &registeredHostClassifier{
+		hostOS: "NetworkOS",
+		device: "Managed Device",
+	}
+
+	engine := &Engine{
+		Opts: models.ScanOptions{
+			Subnet:      "192.168.1.0/24",
+			Timeout:     50 * time.Millisecond,
+			Concurrency: 2,
+		},
+		SocketBudget: 2,
+		deps: engineDependencies{
+			ouiLoader:           &countingOUILoader{},
+			icmpFactory:         &stubICMPFactory{factory: errors.New("icmp unavailable in test")},
+			passiveMDNSListener: &stubPassiveMDNSListener{cache: &stubNameCache{}},
+			activeARPSweeper:    &stubActiveARPSweeper{},
+			targetExpander: &stubTargetExpander{
+				spec: targetSpec{
+					seq: func(func(string) bool) {},
+				},
+			},
+			subnetPreheater: preheaterNoop{},
+			hostDiscoverer:  discoverer,
+			portScanner:     fallbackPortScanner,
+			hostEnricher:    &countingHostEnricher{},
+			osDetector:      fallbackClassifier,
+		},
+	}
+	engine.RegisterHostScanner(registeredScanner)
+	engine.RegisterHostClassifier(registeredClassifier)
+
+	result := engine.Run(context.Background())
+
+	if got := registeredScanner.Calls(); got != 1 {
+		t.Fatalf("expected registered host scanner to run once, got %d", got)
+	}
+	if !registeredScanner.SocketBudgetOK() {
+		t.Fatal("expected registered host scanner to receive a working socket limiter")
+	}
+	if got := registeredClassifier.Calls(); got != 1 {
+		t.Fatalf("expected registered host classifier to run once, got %d", got)
+	}
+	if got := fallbackPortScanner.Calls(); got != 0 {
+		t.Fatalf("expected fallback port scanner to be skipped, got %d call(s)", got)
+	}
+	if got := fallbackClassifier.Calls(); got != 0 {
+		t.Fatalf("expected fallback classifier to be skipped, got %d call(s)", got)
+	}
+	if len(result.Hosts) != 1 {
+		t.Fatalf("expected one host in result, got %d", len(result.Hosts))
+	}
+
+	snapshot := result.Hosts[0].Snapshot()
+	if snapshot.OS != "NetworkOS" {
+		t.Fatalf("expected registered classifier OS, got %q", snapshot.OS)
+	}
+	if snapshot.Device != "Managed Device" {
+		t.Fatalf("expected registered classifier device, got %q", snapshot.Device)
+	}
+	if len(snapshot.OpenPorts) != 1 || snapshot.OpenPorts[0].Protocol != "udp" {
+		t.Fatalf("expected registered scanner ports to be published, got %+v", snapshot.OpenPorts)
+	}
+}
+
+func TestEngineMergesPortsAcrossProtocolScopedHostScanners(t *testing.T) {
+	events := make(chan HostEvent, 1)
+	host := models.NewHost("192.168.1.55")
+	events <- HostEvent{Type: HostDiscovered, Host: host}
+	close(events)
+
+	discoverer := &stubHostDiscoverer{events: events}
+	fallbackPortScanner := &blockingPortScanner{
+		scanStarted: make(chan struct{}),
+		releaseScan: closedChan(),
+	}
+	udpScanner := &protocolHostScanner{
+		protocol: "udp",
+		ports: []models.Port{{
+			Number:  161,
+			State:   models.PortOpen,
+			Service: "SNMP",
+		}},
+	}
+	tcpScanner := &protocolHostScanner{
+		protocol: "tcp",
+		ports: []models.Port{{
+			Number:  22,
+			State:   models.PortOpen,
+			Service: "SSH",
+		}},
+	}
+
+	engine := &Engine{
+		Opts: models.ScanOptions{
+			Subnet:      "192.168.1.0/24",
+			Timeout:     50 * time.Millisecond,
+			Concurrency: 2,
+		},
+		deps: engineDependencies{
+			ouiLoader:           &countingOUILoader{},
+			icmpFactory:         &stubICMPFactory{factory: errors.New("icmp unavailable in test")},
+			passiveMDNSListener: &stubPassiveMDNSListener{cache: &stubNameCache{}},
+			activeARPSweeper:    &stubActiveARPSweeper{},
+			targetExpander: &stubTargetExpander{
+				spec: targetSpec{
+					seq: func(func(string) bool) {},
+				},
+			},
+			subnetPreheater: preheaterNoop{},
+			hostDiscoverer:  discoverer,
+			portScanner:     fallbackPortScanner,
+			hostEnricher:    &countingHostEnricher{},
+			osDetector:      &stubOSDetector{},
+		},
+	}
+	engine.RegisterHostScanner(udpScanner)
+	engine.RegisterHostScanner(tcpScanner)
+
+	result := engine.Run(context.Background())
+
+	if got := udpScanner.Calls(); got != 1 {
+		t.Fatalf("expected UDP scanner to run once, got %d", got)
+	}
+	if got := tcpScanner.Calls(); got != 1 {
+		t.Fatalf("expected TCP scanner to run once, got %d", got)
+	}
+	if got := fallbackPortScanner.Calls(); got != 0 {
+		t.Fatalf("expected fallback port scanner to be skipped, got %d call(s)", got)
+	}
+	if len(result.Hosts) != 1 {
+		t.Fatalf("expected one host in result, got %d", len(result.Hosts))
+	}
+
+	snapshot := result.Hosts[0].Snapshot()
+	if len(snapshot.OpenPorts) != 2 {
+		t.Fatalf("expected both protocol scanners to contribute ports, got %+v", snapshot.OpenPorts)
+	}
+	if snapshot.OpenPorts[0].Number != 22 || snapshot.OpenPorts[0].Protocol != "tcp" {
+		t.Fatalf("expected sorted TCP port first, got %+v", snapshot.OpenPorts[0])
+	}
+	if snapshot.OpenPorts[1].Number != 161 || snapshot.OpenPorts[1].Protocol != "udp" {
+		t.Fatalf("expected UDP port to be preserved, got %+v", snapshot.OpenPorts[1])
+	}
+}
+
+type preheaterNoop struct{}
+
+func (preheaterNoop) Preheat(context.Context, iter.Seq[string], int, icmpProber) {}
+
+func closedChan() <-chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
 }

@@ -125,13 +125,14 @@ subnetlens scan [subnet] [flags]
 ```
 
 **Flags:**
-`-p`, `--ports` string Comma-separated ports to scan (default: common 23 ports)
-`-t`, `--timeout` int Per-connection timeout in ms (default: 500)
-`-c`, `--concurrency` int Max concurrent port scan and banner probes (default: 100)
-`--discovery-concurrency` int Max concurrent host discovery probes (`0` reuses `--concurrency`)
-`-b`, `--banners` Grab service banners
-`--plain` Plain text output (no TUI)
-`--all-alive` Show all discovered hosts, including those that respond with TCP connection errors.
+
+- `-p`, `--ports` string Comma-separated ports to scan (default: common 23 ports)
+- `-t`, `--timeout` int Per-connection timeout in ms (default: 500)
+- `-c`, `--concurrency` int Max concurrent port scan and banner probes (default: 100)
+- `--discovery-concurrency` int Max concurrent host discovery probes (`0` reuses `--concurrency`)
+- `-b`, `--banners` Grab service banners
+- `--plain` Plain text output (no TUI)
+- `--all-alive` Show all discovered hosts, including those that respond with TCP connection errors.
 
 ## Platform Support
 
@@ -183,17 +184,31 @@ subnetlens /
 - [x] mDNS listening
 - [x] Add tests
 - [x] Scan profiles: `--all-alive`
-- [ ] UDP port scanning
 - [ ] JSON / CSV export (`--output result.json`)
-- [ ] GUI with interactive network node graph
-- [ ] `subnetlens watch` — re-scan on interval, alert on changes
+- [ ] UDP port scanning (Pro)
+- [ ] GUI with interactive network node graph (Pro)
+- [ ] `subnetlens watch` — re-scan on interval, alert on changes (Pro)
 
 ## Contributing
 
-To contribute, please consult CONTRIBUTING.md about PR requirements.
+Please see CONTRIBUTING.md for contribution and PR guidelines
 
 ## License
 
 MIT © 2026 Olha Stefanishyna
 
 **Disclaimer:** This tool is intended for authorized network testing and diagnostics only. Do not scan networks or systems without explicit permission. Use responsibly.
+
+## SubnetLens Pro
+
+An upcoming proprietary extension of SubnetLens focused on advanced scanning capabilities. Designed for users who need deeper visibility, automation, and continuous monitoring.
+
+### Planned features
+
+- UDP port scanning and protocol-specific probing
+- Extended service fingerprinting
+- Interactive GUI with network visualization
+- `subnetlens watch` — continuous scanning with change detection and alerts
+- Advanced output formats and reporting
+
+The core project will remain open source and fully usable. Pro features are designed for advanced analysis and extended workflows.

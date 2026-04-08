@@ -1,82 +1,19 @@
 package scanner
 
 import (
-	"bufio"
 	"embed"
 	"encoding/csv"
 	"fmt"
 	"io"
-	"os"
-	"os/exec"
-	"regexp"
-	"runtime"
 	"strings"
 	"sync"
-	"time"
+
+	arptransport "github.com/ostefani/subnetlens/transports/arp"
 )
 
-type ARPCache struct {
-	mu       sync.Mutex
-	table    ARPTable
-	overlay  ARPTable
-	lastRead time.Time
-}
+type ARPCache = arptransport.Cache
 
-type ARPTable map[string]string
-
-func (c *ARPCache) Lookup(ip string) (string, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.table == nil || time.Since(c.lastRead) > 500*time.Millisecond {
-		c.table = ReadARPTable()
-		c.mergeOverlayLocked()
-		c.lastRead = time.Now()
-	}
-
-	mac, ok := c.table[ip]
-	return mac, ok
-}
-
-func (c *ARPCache) Refresh() ARPTable {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.table = ReadARPTable()
-	c.mergeOverlayLocked()
-	c.lastRead = time.Now()
-	return c.table
-}
-
-func (c *ARPCache) Inject(ip, mac string) {
-	mac = normaliseMAC(mac)
-	if mac == "" || ip == "" {
-		return
-	}
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.overlay == nil {
-		c.overlay = make(ARPTable)
-	}
-	c.overlay[ip] = mac
-	if c.table != nil {
-		c.table[ip] = mac
-	}
-}
-
-func (c *ARPCache) mergeOverlayLocked() {
-	if c.overlay == nil {
-		return
-	}
-	if c.table == nil {
-		c.table = make(ARPTable)
-	}
-	for ip, mac := range c.overlay {
-		c.table[ip] = mac
-	}
-}
+type ARPTable = arptransport.Table
 
 const ouiFile = "oui.csv"
 
@@ -85,15 +22,6 @@ var embeddedData embed.FS
 var (
 	OUITable = make(map[string]string)
 )
-
-// ? (192.168.1.1) at aa:bb:cc:dd:ee:ff on en0 ifscope [ethernet]
-var darwinARPRe = regexp.MustCompile(`\((\d+\.\d+\.\d+\.\d+)\) at ([0-9a-f:]+)`)
-
-// 192.168.1.1 aa-bb-cc-dd-ee-ff dynamic
-var windowsARPRe = regexp.MustCompile(`(\d+\.\d+\.\d+\.\d+)\s+([0-9a-f-:]{17})`)
-var linuxARPRe = regexp.MustCompile(`^(\d+\.\d+\.\d+\.\d+)\s+\S+\s+\S+\s+([0-9a-f:]+)`)
-
-var identity = func(s string) string { return s }
 
 // ouiOnce ensures LoadOUICSV's writes to OUITable complete fully before any
 // goroutine calls VendorFromMAC.
@@ -140,90 +68,13 @@ func LoadOUICSV() error {
 }
 
 func ReadARPTable() ARPTable {
-	table := make(ARPTable)
-
-	var err error
-	switch runtime.GOOS {
-	case "linux":
-		err = readARPLinux(table)
-	case "darwin":
-		err = readARPDarwin(table)
-	case "windows":
-		err = readARPWindows(table)
-	default:
-		debugLog("arp", "unsupported OS %q — ARP enrichment disabled", runtime.GOOS)
-		return table
-	}
-
-	if err != nil {
-		debugLog("arp", "ReadARPTable error: %v", err)
-	}
-
+	table, _ := arptransport.ReadTable()
 	return table
-}
-
-func parseARPLines(table ARPTable, r io.Reader, re *regexp.Regexp, transform func(string) string, skipHeader bool) error {
-	sc := bufio.NewScanner(r)
-	if skipHeader {
-		sc.Scan()
-	}
-	for sc.Scan() {
-		matches := re.FindStringSubmatch(transform(sc.Text()))
-		if matches == nil {
-			continue
-		}
-		mac := normaliseMAC(matches[2])
-		if mac == "" {
-			continue
-		}
-		table[matches[1]] = mac
-	}
-	return sc.Err()
-}
-
-func readARPLinux(table ARPTable) error {
-	fileReader, err := os.Open("/proc/net/arp")
-
-	if err != nil {
-		return fmt.Errorf("open /proc/net/arp: %w", err)
-	}
-
-	defer fileReader.Close()
-	return parseARPLines(table, fileReader, linuxARPRe, identity, true)
-}
-
-func readARPFromCommand(table ARPTable, args []string, re *regexp.Regexp, transform func(string) string) error {
-	out, err := exec.Command("arp", args...).Output()
-
-	if err != nil {
-		return fmt.Errorf("arp %v: %w", args, err)
-	}
-
-	return parseARPLines(table, strings.NewReader(string(out)), re, transform, false)
-}
-
-func readARPDarwin(table ARPTable) error {
-	return readARPFromCommand(table, []string{"-an"}, darwinARPRe, func(s string) string { return s })
-}
-
-func readARPWindows(table ARPTable) error {
-	return readARPFromCommand(table, []string{"-a"}, windowsARPRe, strings.ToLower)
 }
 
 // Converts any common MAC format to lowercase colon-separated.
 func normaliseMAC(s string) string {
-	clean := strings.ToLower(strings.NewReplacer("-", "", ":", "", ".", "").Replace(s))
-	if len(clean) != 12 {
-		return ""
-	}
-	for _, c := range clean {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
-			return ""
-		}
-	}
-	return fmt.Sprintf("%s:%s:%s:%s:%s:%s",
-		clean[0:2], clean[2:4], clean[4:6],
-		clean[6:8], clean[8:10], clean[10:12])
+	return arptransport.NormalizeMAC(s)
 }
 
 func VendorFromMAC(mac string) string {
