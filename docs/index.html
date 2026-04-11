@@ -3,10 +3,10 @@
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>SubnetLens — Network discovery and scanning toolkit</title>
+        <title>SubnetLens — Network scanning toolkit</title>
         <meta
             name="description"
-            content="Fast, concurrent network scanner. Discovers live hosts, TCP ports, vendors, hostnames, and OS hints in one Go binary. Open source now. Pro in development." />
+            content="Fast, concurrent network scanner. Discovers live hosts, TCP ports, vendors, hostnames, and OS hints in one Go binary." />
         <meta property="og:title" content="SubnetLens" />
         <meta property="og:description" content="Open-source network scanning now. Pro coming soon." />
         <meta property="og:type" content="website" />
@@ -14,7 +14,7 @@
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:image" content="cover_image.jpg" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crSubnetLensorigin />
         <link
             href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap"
             rel="stylesheet" />
@@ -39,8 +39,8 @@
                 </a>
                 <ul class="nav-list">
                     <li><a href="#editions">Editions</a></li>
-                    <li><a href="#oss">OSS</a></li>
-                    <li><a href="#pro-status">Pro status</a></li>
+                    <li><a href="#SubnetLens">SubnetLens Core</a></li>
+                    <li><a href="#pro">SubnetLens Pro</a></li>
                     <li><a href="#install">Install</a></li>
                     <li>
                         <a href="https://github.com/ostefani/subnetlens" target="_blank" rel="noopener" class="nav-gh"
@@ -57,7 +57,7 @@
                 <div class="hero-inner">
                     <div class="hero-status">
                         <span class="dot"></span>
-                        OSS available now · Pro in development
+                        SubnetLens Core available now · Pro in development
                     </div>
 
                     <h1>See everything<br />on your <span>network</span></h1>
@@ -80,11 +80,12 @@
                             </svg>
                             View on GitHub
                         </a>
-                        <a class="btn btn-primary" href="#install">Install OSS →</a>
+                        <a class="btn btn-primary" href="#install">Install SubnetLens Core</a>
                     </div>
 
                     <p class="hero-note">
-                        No package manager required. No pricing page. No subscription. The OSS scanner is ready now.
+                        No package manager required. No pricing page. No subscription. The SubnetLens scanner is ready
+                        now.
                     </p>
 
                     <figure class="app-frame">
@@ -113,44 +114,35 @@
                 <div class="inner">
                     <div class="section-head">
                         <p class="eyebrow">Editions</p>
-                        <h2>Open source now. Pro in development.</h2>
+                        <h2>SubnetLens Core now. Pro in development.</h2>
                         <p class="lead">
-                            OSS is a complete scanner for day-to-day network inventory. Pro extends it for UDP-heavy
-                            environments and continuous monitoring — currently in development, not publicly available
-                            yet.
+                            SubnetLens Core is a complete scanner for day-to-day network inventory. Pro extends it for
+                            UDP-heavy environments and continuous monitoring, currently in development, not publicly
+                            available yet.
                         </p>
-                    </div>
-
-                    <div class="launch-banner">
-                        <strong>Pro is not released.</strong>&nbsp; No public signup, no pricing, no self-serve
-                        download. The table below reflects what is actually built today — planned items are marked
-                        separately.
                     </div>
 
                     <div class="legend" aria-label="Feature status legend">
                         <span class="legend-item"><span class="s-live" aria-hidden="true">✓</span>&nbsp;Live</span>
-                        <span class="legend-item"
-                            ><span class="s-planned" style="font-family: var(--mono); font-size: 13px">✓</span
-                            >&nbsp;Planned</span
-                        >
+                        <span class="legend-item"><span class="s-planned">✓</span>&nbsp;Planned</span>
                         <span class="legend-item"><span class="s-absent">—</span>&nbsp;Not in this edition</span>
                     </div>
 
                     <div class="table-wrap">
                         <table>
                             <caption style="display: none">
-                                SubnetLens OSS vs Pro feature comparison
+                                SubnetLens SubnetLens vs Pro feature comparison
                             </caption>
                             <thead>
                                 <tr>
                                     <th scope="col">Feature</th>
-                                    <th scope="col">OSS</th>
-                                    <th scope="col">Pro</th>
+                                    <th scope="col">SubnetLens Core</th>
+                                    <th scope="col">SubnetLens Pro</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <tr class="group-row">
-                                    <th scope="colgroup" colspan="1">Inventory</th>
+                                    <th scope="colgroup" colspan="1">Core</th>
                                     <td></td>
                                     <td></td>
                                 </tr>
@@ -158,8 +150,8 @@
                                     <th scope="row">
                                         Host discovery <span class="note">TCP, ICMP, ARP, and mDNS-assisted</span>
                                     </th>
-                                    <td><span class="s-live" aria-label="Live in OSS">✓</span></td>
-                                    <td><span class="s-live" aria-label="Live in Pro">✓</span></td>
+                                    <td><span class="s-live" aria-label="Live in SubnetLens">✓</span></td>
+                                    <td><span class="s-planned" aria-label="Live in Pro">✓</span></td>
                                 </tr>
                                 <tr>
                                     <th scope="row">
@@ -167,12 +159,12 @@
                                         <span class="note"> with configurable ports and concurrency</span>
                                     </th>
                                     <td><span class="s-live">✓</span></td>
-                                    <td><span class="s-live">✓</span></td>
+                                    <td><span class="s-planned">✓</span></td>
                                 </tr>
                                 <tr>
                                     <th scope="row">Hostname, MAC vendor, OS, and device hints</th>
                                     <td><span class="s-live">✓</span></td>
-                                    <td><span class="s-live">✓</span></td>
+                                    <td><span class="s-planned">✓</span></td>
                                 </tr>
                                 <tr>
                                     <th scope="row">
@@ -180,7 +172,7 @@
                                         <span class="note"></span>
                                     </th>
                                     <td><span class="s-live">✓</span></td>
-                                    <td><span class="s-live">✓</span></td>
+                                    <td><span class="s-planned">✓</span></td>
                                 </tr>
                                 <tr>
                                     <th scope="row">Interactive TUI</th>
@@ -192,11 +184,11 @@
                                 <tr>
                                     <th scope="row">Plain terminal output <span class="note"></span></th>
                                     <td><span class="s-live">✓</span></td>
-                                    <td><span class="s-live">✓</span></td>
+                                    <td><span class="s-planned">✓</span></td>
                                 </tr>
 
                                 <tr class="group-row">
-                                    <th scope="colgroup" colspan="1">Pro — live in private build</th>
+                                    <th scope="colgroup" colspan="1">Pro Edition</th>
                                     <td></td>
                                     <td></td>
                                 </tr>
@@ -205,14 +197,14 @@
                                         UDP probing <span class="note">SSDP, mDNS, NBNS, SNMP, DNS, NTP</span>
                                     </th>
                                     <td><span class="s-absent">—</span></td>
-                                    <td><span class="s-live">✓</span></td>
+                                    <td><span class="s-planned">✓</span></td>
                                 </tr>
                                 <tr>
                                     <th scope="row">
                                         Metadata-based device classification <span class="note">from UDP evidence</span>
                                     </th>
                                     <td><span class="s-absent">—</span></td>
-                                    <td><span class="s-live">✓</span></td>
+                                    <td><span class="s-planned">✓</span></td>
                                 </tr>
                                 <tr>
                                     <th scope="row">
@@ -220,12 +212,12 @@
                                         <span class="note">appearance, change, and disappearance alerts</span>
                                     </th>
                                     <td><span class="s-absent">—</span></td>
-                                    <td><span class="s-live">✓</span></td>
+                                    <td><span class="s-planned">✓</span></td>
                                 </tr>
                                 <tr>
                                     <th scope="row">Webhook delivery for watch alerts</th>
                                     <td><span class="s-absent">—</span></td>
-                                    <td><span class="s-live">✓</span></td>
+                                    <td><span class="s-planned">✓</span></td>
                                 </tr>
                                 <tr>
                                     <th scope="row">
@@ -233,11 +225,11 @@
                                         <span class="note"></span>
                                     </th>
                                     <td><span class="s-absent">—</span></td>
-                                    <td><span class="s-live">✓</span></td>
+                                    <td><span class="s-planned">✓</span></td>
                                 </tr>
 
                                 <tr class="group-row">
-                                    <th scope="colgroup" colspan="1">Planned before public launch</th>
+                                    <th scope="colgroup" colspan="1">Planned</th>
                                     <td></td>
                                     <td></td>
                                 </tr>
@@ -263,19 +255,21 @@
                             </tbody>
                         </table>
                     </div>
+
+                    <div class="launch-banner"><strong>Pro has not been released yet.</strong>&nbsp;</div>
                 </div>
             </section>
 
-            <!-- OSS -->
-            <section id="oss">
+            <!-- SubnetLens -->
+            <section id="SubnetLens Core">
                 <div class="inner">
                     <div class="split">
                         <div>
-                            <p class="eyebrow">Open source</p>
+                            <p class="eyebrow">SubnetLens Core</p>
                             <h2>A complete scanner, not a demo.</h2>
                             <p class="lead">
-                                SubnetLens OSS does what it says. You can run it on any network right now, with no
-                                account, no telemetry, and no artificial limits.
+                                SubnetLens SubnetLens does what it says. You can run it on any network right now, with
+                                no account, no telemetry, and no artificial limits.
                             </p>
                             <div style="margin-top: 1.5rem; display: flex; gap: 10px; flex-wrap: wrap">
                                 <a
@@ -343,15 +337,17 @@
             </section>
 
             <!-- Pro status -->
-            <section id="pro-status">
+            <section id="pro">
                 <div class="inner">
                     <div class="section-head">
-                        <p class="eyebrow">Pro status</p>
-                        <h2>Built for continuous monitoring. Not publicly released yet.</h2>
+                        <p class="eyebrow">SubnetLens Pro</p>
+                        <h2>Built for continuous monitoring.</h2>
                         <p class="lead">
-                            The private Pro build extends the OSS core for UDP-heavy networks and continuous monitoring.
-                            Only features that are implemented today are listed as live. Planned items are separate.
+                            The private Pro build extends the SubnetLens Core for UDP-heavy networks and continuous
+                            monitoring. Only features that are implemented today are listed as live. Planned items are
+                            separate.
                         </p>
+                        <p class="lead note">Not publicly released yet.</p>
                     </div>
 
                     <div class="pro-grid">
@@ -372,7 +368,9 @@
                             <h3>Deeper inspection</h3>
                             <p>Go beyond TCP with full UDP probing and service-level fingerprinting.</p>
                             <ul>
-                                <li>UDP discovery and host probing across SSDP, mDNS, NBNS, SNMP, DNS, and NTP</li>
+                                <li>
+                                    UDP discovery and host probing acrSubnetLens SSDP, mDNS, NBNS, SNMP, DNS, and NTP
+                                </li>
                                 <li>
                                     Evidence capture and metadata-driven classification for network appliances and
                                     infrastructure services
@@ -398,7 +396,7 @@
                                 <li>Scheduled re-scans on a configurable interval</li>
                                 <li>Diff output — only shows what changed</li>
                                 <li>Webhook delivery for watch alerts, plus terminal watch output</li>
-                                <li>Grace windows, cooldowns, and identity-aware matching across scan cycles</li>
+                                <li>Grace windows, cooldowns, and identity-aware matching acrSubnetLens scan cycles</li>
                             </ul>
                         </div>
 
@@ -432,20 +430,21 @@
                 <div class="inner">
                     <div class="section-head">
                         <p class="eyebrow">Install</p>
-                        <h2>Install the open-source edition.</h2>
+                        <h2>Install SubnetLens Core.</h2>
                         <p class="lead">
-                            No package manager required. Use Go directly, build from source, or pull a release binary.
+                            No package manager required. Use Go directly, build from source, or download a release
+                            binary.
                         </p>
                     </div>
                     <div class="install-box">
                         <div class="install-tab-bar">
-                            <div class="install-tab" onclick="showTab('releaseBinaries', this)">Release binaries</div>
-                            <div class="install-tab active" onclick="showTab('installWithGo', this)">
-                                Install with Go
+                            <div class="install-tab active" onclick="showTab('releaseBinaries', this)">
+                                Release binaries
                             </div>
+                            <div class="install-tab" onclick="showTab('installWithGo', this)">Install with Go</div>
                             <div class="install-tab" onclick="showTab('buildFromSource', this)">Build from source</div>
                         </div>
-                        <div class="install-body install-body-flat" id="tab-releaseBinaries" style="display: none">
+                        <div class="install-body install-body-flat" id="tab-releaseBinaries">
                             <p class="install-note">Pre-compiled binaries for Linux, macOS, and Windows.</p>
                             <div class="install-action-stack">
                                 <a
@@ -464,19 +463,23 @@
                                 >
                             </div>
                         </div>
-                        <div class="install-body" id="tab-installWithGo">
-                            <div><span class="c"># Fastest path if Go is already on the machine.</span></div>
+                        <div class="install-body" id="tab-installWithGo" style="display: none">
+                            <div><span class="c">*** Fastest path if Go is already on the machine ***</span></div>
                             <div><span class="k">go</span> install github.com/ostefani/subnetlens@latest</div>
                             <div>&nbsp;</div>
                             <div><span class="c"># then run</span></div>
                             <div><span class="k">sudo subnetlens</span> scan <span class="s">192.168.1.0/24</span></div>
                         </div>
                         <div class="install-body" id="tab-buildFromSource" style="display: none">
-                            <div><span class="c">Use the repo directly and build the binary yourself.</span></div>
-                            <div><span class="k">git</span> -L clone https://github.com/ostefani/subnetlens</div>
+                            <div>
+                                <span class="c">*** Use the repo directly and build the binary yourself ***</span>
+                            </div>
+                            <div><span class="k">git</span> clone https://github.com/ostefani/subnetlens</div>
                             <div><span class="k">cd</span> subnetlens</div>
-                            <div>&nbsp;</div>
                             <div><span class="k">go</span> build .</div>
+                            <div>
+                                <span class="k">sudo ./subnetlens</span> scan <span class="s">192.168.1.0/24</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -487,18 +490,23 @@
                 <div class="inner">
                     <div class="phil-inner">
                         <p class="eyebrow">Philosophy</p>
-                        <h2>OSS is the product. Pro extends it.</h2>
+                        <h2>SubnetLens Core first, Pro when you need it.</h2>
                         <blockquote>
                             <p>
-                                <strong>SubnetLens OSS is not a trial and not a stripped-down version.</strong> It
-                                discovers hosts, scans ports, and resolves identities without any account or artificial
-                                limits. It is complete and usable on its own.
+                                <strong>SubnetLens Core is not a trial and not a stripped-down version.</strong>
+                                It does exactly what it says, on any network, without an account.
                             </p>
                         </blockquote>
                         <p style="color: var(--text-2); font-size: 15px">
-                            Pro extends the OSS core for environments where TCP scanning is not enough — UDP-heavy
+                            Pro extends the Core for environments where TCP scanning is not enough: UDP-heavy
                             infrastructure, IoT-dense networks, and long-running monitoring workflows. If OSS does
                             everything you need, use it. There is no pressure to upgrade.
+                        </p>
+                        <p style="color: var(--text-2); font-size: 15px">
+                            This follows the same model as <span style="color: var(--accent)">Grafana</span>,
+                            <span style="color: var(--accent)">Terraform</span>
+                            and other tools that treat open source as a complete product and Pro as an optional
+                            extension.
                         </p>
                     </div>
                 </div>
@@ -517,7 +525,7 @@
              M50,31 L31,50 L50,69 L69,50 Z"
                             fill="currentColor" />
                     </svg>
-                    <p>SubnetLens · MIT licensed · Built in Go</p>
+                    <p>Open-source core · Private proprietary Pro extension · Built in Go</p>
                 </div>
                 <ul class="footer-links">
                     <li><a href="https://github.com/ostefani/subnetlens" target="_blank" rel="noopener">GitHub</a></li>

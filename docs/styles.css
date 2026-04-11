@@ -11,11 +11,12 @@
     --bg-2: #111318;
     --bg-3: #181b22;
     --bg-4: #1e222c;
+    --bg-5: #3f475dce;
     --border: rgba(255, 255, 255, 0.07);
     --border-2: rgba(255, 255, 255, 0.13);
-    --text: #dde1ea;
-    --text-2: #7a8194;
-    --text-3: #424757;
+    --text: #e9ecf3;
+    /* --text2: #8f97ad; */
+    --text-3: #8f97ad;
     --accent: #4f8ef7;
     --accent-hover: #4b83e4;
     --accent-dim: rgba(79, 142, 247, 0.12);
@@ -26,7 +27,7 @@
     --amber: #e09a3a;
     --amber-dim: rgba(224, 154, 58, 0.1);
     --red-dim: rgba(220, 60, 60, 0.08);
-    --mono: 'IBM Plex Mono', monospace;
+    --mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
     --sans: 'IBM Plex Sans', system-ui, sans-serif;
     --max: 1080px;
     --r: 8px;
@@ -110,7 +111,7 @@ nav {
 }
 .nav-list a {
     font-size: 13px;
-    color: var(--text-2);
+    color: var(--text);
     text-decoration: none;
     padding: 5px 12px;
     border-radius: 6px;
@@ -150,7 +151,7 @@ section {
     margin-bottom: 0.75rem;
 }
 h1 {
-    font-size: clamp(2rem, 5vw, 3.2rem);
+    font-size: clamp(2.4rem, 5vw, 3.8rem);
     font-weight: 600;
     letter-spacing: -0.03em;
     line-height: 1.15;
@@ -180,10 +181,15 @@ h3 {
     margin-bottom: 0.4rem;
 }
 .lead {
-    font-size: 1.05rem;
-    color: var(--text-2);
+    font-size: clamp(1rem, 2vw, 1.2rem);
+    color: var(--text);
     max-width: 580px;
     line-height: 1.7;
+    margin-bottom: 2.5rem;
+}
+
+.note {
+    color: var(--text-3);
 }
 
 /* ── Buttons ── */
@@ -211,7 +217,7 @@ h3 {
 }
 .btn-ghost {
     background: transparent;
-    color: var(--text-2);
+    color: var(--text);
     border: 1px solid var(--border-2);
 }
 .btn-ghost:hover {
@@ -352,9 +358,11 @@ h3 {
     border-radius: var(--r);
     padding: 14px 18px;
     margin-bottom: 2rem;
+    margin-top: 2rem;
     font-size: 13px;
-    color: var(--text-2);
+    color: var(--text);
 }
+
 .launch-banner strong {
     color: var(--amber);
 }
@@ -370,7 +378,7 @@ h3 {
     align-items: center;
     gap: 6px;
     font-size: 12px;
-    color: var(--text-2);
+    color: var(--text);
 }
 
 .table-wrap {
@@ -393,7 +401,7 @@ thead th {
     font-family: var(--mono);
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--text-2);
+    color: var(--text);
     text-align: left;
     border-bottom: 1px solid var(--border-2);
 }
@@ -411,12 +419,9 @@ thead th:nth-child(3) {
 tbody tr {
     transition: background 0.1s;
 }
-tbody tr:hover td,
-tbody tr:hover th[scope='row'] {
+
+tbody tr:hover {
     background: rgba(255, 255, 255, 0.02);
-}
-tbody tr:hover td:nth-child(3) {
-    background: rgba(0, 201, 167, 0.05);
 }
 
 tbody th[scope='row'] {
@@ -459,7 +464,6 @@ tr:last-child td {
     color: var(--text-3);
     background: var(--bg-4);
     border-bottom: 1px solid var(--border);
-    colspan: 3;
 }
 .group-row td {
     background: var(--bg-4);
@@ -506,7 +510,7 @@ tr:last-child td {
     padding: 11px 0;
     border-bottom: 1px solid var(--border);
     font-size: 14px;
-    color: var(--text-2);
+    color: var(--text);
 }
 .feat-list li:first-child {
     border-top: 1px solid var(--border);
@@ -579,7 +583,7 @@ tr:last-child td {
 }
 .pro-card p {
     font-size: 14px;
-    color: var(--text-2);
+    color: var(--text);
     line-height: 1.6;
 }
 .pro-card ul {
@@ -588,7 +592,7 @@ tr:last-child td {
 }
 .pro-card ul li {
     font-size: 13px;
-    color: var(--text-2);
+    color: var(--text);
     padding: 3px 0;
     display: flex;
     gap: 8px;
@@ -622,7 +626,7 @@ tr:last-child td {
 }
 .pro-cta-box p {
     font-size: 14px;
-    color: var(--text-2);
+    color: var(--text);
 }
 
 /* ── Install ── */
@@ -671,7 +675,7 @@ tr:last-child td {
 }
 .install-note {
     margin: 0 0 14px;
-    color: var(--text-2);
+    color: var(--text);
 }
 .install-action-stack {
     display: flex;
@@ -709,7 +713,7 @@ tr:last-child td {
 }
 .install-card > p {
     font-size: 13px;
-    color: var(--text-2);
+    color: var(--text);
     margin-bottom: 1rem;
 } */
 pre {
@@ -740,15 +744,15 @@ code {
     max-width: 680px;
 }
 blockquote {
-    border-left: 2px solid var(--teal);
+    border-left: 2px solid var(--accent);
     padding: 1rem 1.5rem;
-    background: var(--teal-dim);
+    background: var(--accent-dim);
     border-radius: 0 var(--r) var(--r) 0;
     margin: 2rem 0;
 }
 blockquote p {
     font-size: 15px;
-    color: var(--text-2);
+    color: var(--text);
     line-height: 1.7;
     font-style: italic;
 }
@@ -793,7 +797,7 @@ footer {
     transition: color 0.15s;
 }
 .footer-links a:hover {
-    color: var(--text-2);
+    color: var(--text);
 }
 
 /* ── Responsive ── */
