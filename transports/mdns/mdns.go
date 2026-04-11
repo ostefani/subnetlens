@@ -12,6 +12,11 @@ import (
 	"golang.org/x/net/ipv4"
 )
 
+var (
+	mdnsMulticastAddr  = &net.UDPAddr{IP: net.IPv4(224, 0, 0, 251), Port: 5353}
+	querySocketFactory = newQuerySocket
+)
+
 type socketLimiter interface {
 	Acquire(context.Context) error
 	Release()
@@ -90,11 +95,12 @@ func StartPassiveListener(ctx context.Context, store nameStore) error {
 }
 
 func ResolveName(ctx context.Context, ip string, limiter socketLimiter) string {
-	parts := strings.Split(ip, ".")
-	if len(parts) != 4 {
+	targetIP := net.ParseIP(ip).To4()
+	if targetIP == nil {
 		return ""
 	}
 
+	parts := strings.Split(targetIP.String(), ".")
 	arpa := fmt.Sprintf("%s.%s.%s.%s.in-addr.arpa", parts[3], parts[2], parts[1], parts[0])
 	query := buildPTRQuery(arpa)
 
@@ -106,8 +112,7 @@ func ResolveName(ctx context.Context, ip string, limiter socketLimiter) string {
 		defer limiter.Release()
 	}
 
-	dialer := net.Dialer{Timeout: timeout}
-	conn, err := dialer.DialContext(ctx, "udp", net.JoinHostPort(ip, "5353"))
+	conn, err := querySocketFactory(targetIP)
 	if err != nil {
 		return ""
 	}
@@ -117,17 +122,28 @@ func ResolveName(ctx context.Context, ip string, limiter socketLimiter) string {
 		return ""
 	}
 
-	if _, err := conn.Write(query); err != nil {
+	// Use a one-shot multicast query so replies come back to this ephemeral
+	// socket without competing with the passive listener already bound to :5353.
+	// We intentionally leave the QU bit clear: because the source port is not
+	// 5353, responders treat this as a simple one-shot query and reply via
+	// unicast to this socket.
+	if _, err := conn.WriteTo(query, mdnsMulticastAddr); err != nil {
 		return ""
 	}
 
 	buf := make([]byte, 512)
-	n, err := conn.Read(buf)
-	if err != nil || n < 12 {
-		return ""
+	for {
+		n, _, err := conn.ReadFrom(buf)
+		if err != nil {
+			return ""
+		}
+		if n < 12 {
+			continue
+		}
+		if name := parseResponse(buf[:n]); name != "" {
+			return name
+		}
 	}
-
-	return parseResponse(buf[:n])
 }
 
 func buildPTRQuery(domain string) []byte {
@@ -146,9 +162,77 @@ func buildPTRQuery(domain string) []byte {
 	}
 	msg = append(msg, 0x00)
 	msg = append(msg, 0x00, 0x0c)
-	msg = append(msg, 0x80, 0x01)
+	// One-shot multicast queries use a non-5353 source port and therefore get
+	// direct unicast replies without needing the QU bit.
+	msg = append(msg, 0x00, 0x01)
 
 	return msg
+}
+
+func newQuerySocket(targetIP net.IP) (net.PacketConn, error) {
+	iface, srcIP := selectInterfaceForTarget(targetIP)
+
+	if srcIP != nil {
+		if conn, err := net.ListenPacket("udp4", net.JoinHostPort(srcIP.String(), "0")); err == nil {
+			configureQuerySocket(conn, iface)
+			return conn, nil
+		}
+	}
+
+	conn, err := net.ListenPacket("udp4", "0.0.0.0:0")
+	if err != nil {
+		return nil, err
+	}
+	configureQuerySocket(conn, iface)
+	return conn, nil
+}
+
+func configureQuerySocket(conn net.PacketConn, iface *net.Interface) {
+	pc := ipv4.NewPacketConn(conn)
+	if iface != nil {
+		_ = pc.SetMulticastInterface(iface)
+	}
+	_ = pc.SetMulticastTTL(255)
+	_ = pc.SetMulticastLoopback(false)
+}
+
+func selectInterfaceForTarget(targetIP net.IP) (*net.Interface, net.IP) {
+	if targetIP == nil {
+		return nil, nil
+	}
+
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil, nil
+	}
+
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 || iface.Flags&net.FlagMulticast == 0 {
+			continue
+		}
+
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+
+		for _, addr := range addrs {
+			ipNet, ok := addr.(*net.IPNet)
+			if !ok {
+				continue
+			}
+
+			ip4 := ipNet.IP.To4()
+			if ip4 == nil {
+				continue
+			}
+			if ipNet.Contains(targetIP) {
+				return &iface, ip4
+			}
+		}
+	}
+
+	return nil, nil
 }
 
 func parseResponse(data []byte) string {
