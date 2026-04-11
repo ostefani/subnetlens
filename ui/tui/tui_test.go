@@ -329,8 +329,7 @@ func TestWaitForHostReturnsNilWhenClosed(t *testing.T) {
 
 func TestRenderRandomizedMACFootnote(t *testing.T) {
 	host := models.NewHost("192.168.1.44")
-	host.SetVendor(randomizedMACVendorValue)
-	host.SetDevice(randomizedMACDeviceValue)
+	host.SetRandomizedMAC(true)
 
 	footnote := renderRandomizedMACFootnote([]*models.Host{host})
 	if footnote == "" {
@@ -339,10 +338,10 @@ func TestRenderRandomizedMACFootnote(t *testing.T) {
 	if got, want := footnote, footnoteStyle.Render("* For Randomized MAC vendor and device are undetectable."); got != want {
 		t.Fatalf("expected footnote %q, got %q", want, got)
 	}
-	if got := displayVendor(host.Snapshot().Vendor); got != randomizedMACLabel {
+	if got := displayVendor(host.Snapshot()); got != randomizedMACLabel {
 		t.Fatalf("expected vendor label %q, got %q", randomizedMACLabel, got)
 	}
-	if got := displayDevice(host.Snapshot().Device); got != randomizedMACLabel {
+	if got := displayDevice(host.Snapshot()); got != randomizedMACLabel {
 		t.Fatalf("expected device label %q, got %q", randomizedMACLabel, got)
 	}
 }

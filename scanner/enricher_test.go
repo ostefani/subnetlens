@@ -15,3 +15,18 @@ func TestEnrichHostDoesNotApplyHostnameFromCache(t *testing.T) {
 		t.Fatalf("expected enricher to leave hostname unchanged, got %q", got)
 	}
 }
+
+func TestEnrichHostMarksRandomizedMACInSnapshot(t *testing.T) {
+	host := models.NewHost("192.168.1.10")
+	host.SetMAC("9a:11:22:33:44:55")
+
+	EnrichHost(host, nil)
+
+	snapshot := host.Snapshot()
+	if !snapshot.RandomizedMAC {
+		t.Fatalf("expected randomized MAC flag, got %+v", snapshot)
+	}
+	if snapshot.Vendor != "" || snapshot.Device != "" {
+		t.Fatalf("expected randomized MAC detection to avoid placeholder strings, got %+v", snapshot)
+	}
+}

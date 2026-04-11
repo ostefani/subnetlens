@@ -77,14 +77,15 @@ func (i ScanIssue) String() string {
 type Host struct {
 	mu sync.RWMutex
 
-	ip       string
-	Hostname string
-	MAC      string
-	Vendor   string
-	Latency  time.Duration
-	Ports    []Port
-	OS       string
-	Device   string
+	ip            string
+	Hostname      string
+	MAC           string
+	RandomizedMAC bool
+	Vendor        string
+	Latency       time.Duration
+	Ports         []Port
+	OS            string
+	Device        string
 
 	SeenAt    time.Time
 	UpdatedAt time.Time
@@ -94,18 +95,19 @@ type Host struct {
 }
 
 type HostSnapshot struct {
-	IP        string
-	Hostname  string
-	MAC       string
-	Vendor    string
-	Latency   time.Duration
-	Ports     []Port
-	OS        string
-	Device    string
-	SeenAt    time.Time
-	UpdatedAt time.Time
-	Source    HostSource
-	Alive     bool
+	IP            string
+	Hostname      string
+	MAC           string
+	RandomizedMAC bool
+	Vendor        string
+	Latency       time.Duration
+	Ports         []Port
+	OS            string
+	Device        string
+	SeenAt        time.Time
+	UpdatedAt     time.Time
+	Source        HostSource
+	Alive         bool
 }
 
 func NewHost(ip string) *Host {
@@ -135,17 +137,18 @@ func (h *Host) Snapshot() HostSnapshot {
 	defer h.mu.RUnlock()
 
 	snapshot := HostSnapshot{
-		IP:        h.ip,
-		Hostname:  h.Hostname,
-		MAC:       h.MAC,
-		Vendor:    h.Vendor,
-		Latency:   h.Latency,
-		OS:        h.OS,
-		Device:    h.Device,
-		SeenAt:    h.SeenAt,
-		UpdatedAt: h.UpdatedAt,
-		Source:    h.Source,
-		Alive:     h.alive,
+		IP:            h.ip,
+		Hostname:      h.Hostname,
+		MAC:           h.MAC,
+		RandomizedMAC: h.RandomizedMAC,
+		Vendor:        h.Vendor,
+		Latency:       h.Latency,
+		OS:            h.OS,
+		Device:        h.Device,
+		SeenAt:        h.SeenAt,
+		UpdatedAt:     h.UpdatedAt,
+		Source:        h.Source,
+		Alive:         h.alive,
 	}
 	if len(h.Ports) > 0 {
 		snapshot.Ports = append([]Port(nil), h.Ports...)
@@ -241,6 +244,21 @@ func (h *Host) SetMACIfEmpty(mac string) bool {
 		return false
 	}
 	h.MAC = mac
+	return true
+}
+
+func (h *Host) SetRandomizedMAC(v bool) bool {
+	if h == nil {
+		return false
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.RandomizedMAC == v {
+		return false
+	}
+	h.RandomizedMAC = v
 	return true
 }
 
