@@ -100,34 +100,37 @@ func runPlain(opts models.ScanOptions, socketBudget int, warnings []string) erro
 		printed[local.IP] = true
 	}
 
-	eng := scanner.NewEngine(opts, socketBudget)
-	eng.OnProgress = func(done, total int) {
-		fmt.Fprintf(os.Stderr, "\r  Probing hosts: %d/%d", done, total)
-	}
-	eng.OnIssue = func(issue models.ScanIssue) {
-		fmt.Fprintf(os.Stderr, "\n%s\n", issue.String())
-	}
-	eng.OnHost = func(h *models.Host) {
-		snapshot := h.Snapshot()
+	eng := scanner.NewEngine(
+		opts,
+		socketBudget,
+		scanner.WithOnProgress(func(done, total int) {
+			fmt.Fprintf(os.Stderr, "\r  Probing hosts: %d/%d", done, total)
+		}),
+		scanner.WithOnIssue(func(issue models.ScanIssue) {
+			fmt.Fprintf(os.Stderr, "\n%s\n", issue.String())
+		}),
+		scanner.WithOnHost(func(h *models.Host) {
+			snapshot := h.Snapshot()
 
-		mu.Lock()
-		if _, seen := pending[snapshot.IP]; !seen {
-			order = append(order, snapshot.IP)
-		}
-		pending[snapshot.IP] = snapshot
+			mu.Lock()
+			if _, seen := pending[snapshot.IP]; !seen {
+				order = append(order, snapshot.IP)
+			}
+			pending[snapshot.IP] = snapshot
 
-		// Each update refreshes the buffered snapshot for host.
-		if printed[snapshot.IP] || !plainHostReady(snapshot) {
+			// Each update refreshes the buffered snapshot for host.
+			if printed[snapshot.IP] || !plainHostReady(snapshot) {
+				mu.Unlock()
+				return
+			}
+			printed[snapshot.IP] = true
 			mu.Unlock()
-			return
-		}
-		printed[snapshot.IP] = true
-		mu.Unlock()
 
-		// Print as soon as the host looks complete enough for plain output.
-		fmt.Fprintln(os.Stderr)
-		printPlainHost(snapshot)
-	}
+			// Print as soon as the host looks complete enough for plain output.
+			fmt.Fprintln(os.Stderr)
+			printPlainHost(snapshot)
+		}),
+	)
 
 	result := eng.Run(context.Background())
 	fmt.Fprintf(os.Stderr, "\r                              \r")
