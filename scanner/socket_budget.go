@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/ostefani/subnetlens/models"
+	"github.com/ostefani/subnetlens/scanner/contracts"
 )
 
 const (
@@ -27,13 +28,24 @@ func PrepareScanOptions(opts models.ScanOptions) (models.ScanOptions, int, []str
 	return plan.opts, plan.socketBudget, plan.warnings
 }
 
+func PrepareScanOptionsWithOptions(opts models.ScanOptions, options ...Option) (models.ScanOptions, int, []string) {
+	softLimit, limitKnown := systemOpenFileLimit()
+	plan := buildResourcePlanWithDemand(opts, softLimit, limitKnown, additionalSocketDemandForOptions(opts, options))
+	return plan.opts, plan.socketBudget, plan.warnings
+}
+
 func buildResourcePlan(opts models.ScanOptions, softLimit uint64, limitKnown bool) resourcePlan {
+	return buildResourcePlanWithDemand(opts, softLimit, limitKnown, contracts.AdditionalSocketDemand{})
+}
+
+func buildResourcePlanWithDemand(opts models.ScanOptions, softLimit uint64, limitKnown bool, additional contracts.AdditionalSocketDemand) resourcePlan {
 	planned := opts
 	requestedScan := opts.ScanConcurrencyLimit()
 	requestedDiscovery := opts.DiscoveryConcurrencyLimit()
 
 	planned.Concurrency = requestedScan
 	planned.DiscoveryConcurrency = requestedDiscovery
+	additional = sanitizeAdditionalSocketDemand(additional)
 
 	if !limitKnown {
 		return resourcePlan{opts: planned}
@@ -49,6 +61,7 @@ func buildResourcePlan(opts models.ScanOptions, softLimit uint64, limitKnown boo
 			budget,
 			requestedScan,
 			requestedDiscovery,
+			additional,
 		),
 	}
 }
@@ -70,7 +83,13 @@ func socketBudgetForLimit(softLimit uint64) int {
 }
 
 func estimatedSocketDemand(scanConcurrency, discoveryConcurrency int) int {
-	return scanConcurrency + discoveryConcurrency*discoverySocketEstimate()
+	return estimatedSocketDemandWithDemand(scanConcurrency, discoveryConcurrency, contracts.AdditionalSocketDemand{})
+}
+
+func estimatedSocketDemandWithDemand(scanConcurrency, discoveryConcurrency int, additional contracts.AdditionalSocketDemand) int {
+	additional = sanitizeAdditionalSocketDemand(additional)
+	return scanConcurrency + discoveryConcurrency*discoverySocketEstimate() +
+		additional.Fixed + scanConcurrency*additional.PerScanSlot + discoveryConcurrency*additional.PerDiscoverySlot
 }
 
 func discoverySocketEstimate() int {
@@ -82,8 +101,13 @@ func resourceWarnings(
 	budget int,
 	requestedScan int,
 	requestedDiscovery int,
+	additional contracts.AdditionalSocketDemand,
 ) []string {
-	requestedDemand := estimatedSocketDemand(requestedScan, requestedDiscovery)
+	requestedDemand := estimatedSocketDemandWithDemand(
+		requestedScan,
+		requestedDiscovery,
+		additional,
+	)
 
 	if requestedDemand <= budget {
 		return nil
@@ -97,6 +121,62 @@ func resourceWarnings(
 		requestedDiscovery,
 		requestedDemand,
 	)}
+}
+
+func additionalSocketDemandForOptions(opts models.ScanOptions, options []Option) contracts.AdditionalSocketDemand {
+	if len(options) == 0 {
+		return contracts.AdditionalSocketDemand{}
+	}
+
+	engine := &Engine{}
+	for _, option := range options {
+		if option == nil {
+			continue
+		}
+		option(engine)
+	}
+
+	return additionalSocketDemandForExtensions(opts, engine.discoveryModules, engine.hostScanners)
+}
+
+func additionalSocketDemandForExtensions(opts models.ScanOptions, discoveryModules []contracts.DiscoveryModule, hostScanners []contracts.HostScanner) contracts.AdditionalSocketDemand {
+	demand := contracts.AdditionalSocketDemand{}
+	for _, discoveryModule := range discoveryModules {
+		demand = sumAdditionalSocketDemand(demand, additionalSocketDemandOf(opts, discoveryModule))
+	}
+	for _, hostScanner := range hostScanners {
+		demand = sumAdditionalSocketDemand(demand, additionalSocketDemandOf(opts, hostScanner))
+	}
+	return demand
+}
+
+func additionalSocketDemandOf(opts models.ScanOptions, extension any) contracts.AdditionalSocketDemand {
+	reporter, ok := extension.(contracts.SocketDemandReporter)
+	if !ok {
+		return contracts.AdditionalSocketDemand{}
+	}
+	return sanitizeAdditionalSocketDemand(reporter.AdditionalSocketDemand(opts))
+}
+
+func sumAdditionalSocketDemand(left, right contracts.AdditionalSocketDemand) contracts.AdditionalSocketDemand {
+	return contracts.AdditionalSocketDemand{
+		Fixed:            left.Fixed + right.Fixed,
+		PerScanSlot:      left.PerScanSlot + right.PerScanSlot,
+		PerDiscoverySlot: left.PerDiscoverySlot + right.PerDiscoverySlot,
+	}
+}
+
+func sanitizeAdditionalSocketDemand(demand contracts.AdditionalSocketDemand) contracts.AdditionalSocketDemand {
+	if demand.Fixed < 0 {
+		demand.Fixed = 0
+	}
+	if demand.PerScanSlot < 0 {
+		demand.PerScanSlot = 0
+	}
+	if demand.PerDiscoverySlot < 0 {
+		demand.PerDiscoverySlot = 0
+	}
+	return demand
 }
 
 func newSocketLimiter(slots int) *socketLimiter {

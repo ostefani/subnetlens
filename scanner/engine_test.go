@@ -960,11 +960,11 @@ func TestEngineUsesRegisteredHostScannerAndClassifier(t *testing.T) {
 	if got := registeredClassifier.Calls(); got != 1 {
 		t.Fatalf("expected registered host classifier to run once, got %d", got)
 	}
-	if got := fallbackPortScanner.Calls(); got != 0 {
-		t.Fatalf("expected fallback port scanner to be skipped, got %d call(s)", got)
+	if got := fallbackPortScanner.Calls(); got != 1 {
+		t.Fatalf("expected baseline port scanner to run once, got %d call(s)", got)
 	}
-	if got := fallbackClassifier.Calls(); got != 0 {
-		t.Fatalf("expected fallback classifier to be skipped, got %d call(s)", got)
+	if got := fallbackClassifier.Calls(); got != 1 {
+		t.Fatalf("expected baseline classifier to run once, got %d call(s)", got)
 	}
 	if len(result.Hosts) != 1 {
 		t.Fatalf("expected one host in result, got %d", len(result.Hosts))
@@ -978,8 +978,14 @@ func TestEngineUsesRegisteredHostScannerAndClassifier(t *testing.T) {
 		t.Fatalf("expected registered classifier device, got %q", snapshot.Device)
 	}
 	openPorts := snapshot.OpenPorts()
-	if len(openPorts) != 1 || openPorts[0].Protocol != "udp" {
-		t.Fatalf("expected registered scanner ports to be published, got %+v", openPorts)
+	if len(openPorts) != 2 {
+		t.Fatalf("expected baseline TCP and registered UDP ports, got %+v", openPorts)
+	}
+	if openPorts[0].Number != 22 || openPorts[0].Protocol != "tcp" {
+		t.Fatalf("expected baseline TCP port first, got %+v", openPorts[0])
+	}
+	if openPorts[1].Number != 161 || openPorts[1].Protocol != "udp" {
+		t.Fatalf("expected registered UDP port second, got %+v", openPorts[1])
 	}
 }
 
@@ -1048,8 +1054,8 @@ func TestEngineMergesPortsAcrossProtocolScopedHostScanners(t *testing.T) {
 	if got := tcpScanner.Calls(); got != 1 {
 		t.Fatalf("expected TCP scanner to run once, got %d", got)
 	}
-	if got := fallbackPortScanner.Calls(); got != 0 {
-		t.Fatalf("expected fallback port scanner to be skipped, got %d call(s)", got)
+	if got := fallbackPortScanner.Calls(); got != 1 {
+		t.Fatalf("expected baseline port scanner to run once, got %d call(s)", got)
 	}
 	if len(result.Hosts) != 1 {
 		t.Fatalf("expected one host in result, got %d", len(result.Hosts))

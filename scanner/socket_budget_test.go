@@ -1,9 +1,11 @@
 package scanner
 
 import (
+	"context"
 	"testing"
 
 	"github.com/ostefani/subnetlens/models"
+	"github.com/ostefani/subnetlens/scanner/contracts"
 )
 
 func TestBuildResourcePlanWithoutSystemLimitKeepsNormalizedConcurrency(t *testing.T) {
@@ -61,4 +63,40 @@ func TestBuildResourcePlanWarnsWhenCombinedDemandExceedsBudget(t *testing.T) {
 	if len(plan.warnings) == 0 {
 		t.Fatal("expected warning when combined socket demand exceeds budget")
 	}
+}
+
+func TestEstimatedSocketDemandIncludesRegisteredExtensionDemand(t *testing.T) {
+	additional := additionalSocketDemandForOptions(models.ScanOptions{}, []Option{
+		WithDiscoveryModule(socketDemandDiscoveryModule{demand: contracts.AdditionalSocketDemand{Fixed: 2, PerDiscoverySlot: 1}}),
+		WithHostScanner(socketDemandHostScanner{demand: contracts.AdditionalSocketDemand{PerScanSlot: 2}}),
+	})
+
+	if got := estimatedSocketDemandWithDemand(10, 5, additional); got != 67 {
+		t.Fatalf("expected extension demand to increase estimated sockets to 67, got %d", got)
+	}
+}
+
+type socketDemandDiscoveryModule struct {
+	demand contracts.AdditionalSocketDemand
+}
+
+func (m socketDemandDiscoveryModule) Discover(context.Context, models.ScanOptions, contracts.DiscoveryRuntime) <-chan contracts.HostObservation {
+	out := make(chan contracts.HostObservation)
+	close(out)
+	return out
+}
+
+func (m socketDemandDiscoveryModule) AdditionalSocketDemand(models.ScanOptions) contracts.AdditionalSocketDemand {
+	return m.demand
+}
+
+type socketDemandHostScanner struct {
+	demand contracts.AdditionalSocketDemand
+}
+
+func (m socketDemandHostScanner) ScanHost(context.Context, *models.Host, models.ScanOptions, contracts.Runtime) {
+}
+
+func (m socketDemandHostScanner) AdditionalSocketDemand(models.ScanOptions) contracts.AdditionalSocketDemand {
+	return m.demand
 }

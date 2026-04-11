@@ -19,9 +19,17 @@ func mergeHostObservationStreams(ctx context.Context, streams ...<-chan contract
 		wg.Add(1)
 		go func(stream <-chan contracts.HostObservation) {
 			defer wg.Done()
-			for observation := range stream {
-				if !sendHostObservation(ctx, out, observation) {
+			for {
+				select {
+				case <-ctx.Done():
 					return
+				case observation, ok := <-stream:
+					if !ok {
+						return
+					}
+					if !sendHostObservation(ctx, out, observation) {
+						return
+					}
 				}
 			}
 		}(stream)
@@ -58,9 +66,17 @@ func mergePassiveMDNSObservations(
 			}
 		}()
 
-		for observation := range discovery {
-			if !sendHostObservation(ctx, out, observation) {
+		for {
+			select {
+			case <-ctx.Done():
 				return
+			case observation, ok := <-discovery:
+				if !ok {
+					return
+				}
+				if !sendHostObservation(ctx, out, observation) {
+					return
+				}
 			}
 		}
 	}()
@@ -68,12 +84,20 @@ func mergePassiveMDNSObservations(
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		for observation := range passive {
-			if contains == nil || !contains(observation.IP) {
-				continue
-			}
-			if !sendHostObservation(ctx, out, observation) {
+		for {
+			select {
+			case <-ctx.Done():
 				return
+			case observation, ok := <-passive:
+				if !ok {
+					return
+				}
+				if contains == nil || !contains(observation.IP) {
+					continue
+				}
+				if !sendHostObservation(ctx, out, observation) {
+					return
+				}
 			}
 		}
 	}()

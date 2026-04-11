@@ -1,6 +1,9 @@
 package scanner
 
-import "github.com/ostefani/subnetlens/scanner/contracts"
+import (
+	"github.com/ostefani/subnetlens/models"
+	"github.com/ostefani/subnetlens/scanner/contracts"
+)
 
 type Option func(*Engine)
 
@@ -19,6 +22,33 @@ func WithHostScanner(hostScanner contracts.HostScanner) Option {
 func WithHostClassifier(hostClassifier contracts.HostClassifier) Option {
 	return func(e *Engine) {
 		e.RegisterHostClassifier(hostClassifier)
+	}
+}
+
+func WithOnHost(onHost func(*models.Host)) Option {
+	return func(e *Engine) {
+		if e == nil {
+			return
+		}
+		e.OnHost = onHost
+	}
+}
+
+func WithOnProgress(onProgress func(done, total int)) Option {
+	return func(e *Engine) {
+		if e == nil {
+			return
+		}
+		e.OnProgress = onProgress
+	}
+}
+
+func WithOnIssue(onIssue func(models.ScanIssue)) Option {
+	return func(e *Engine) {
+		if e == nil {
+			return
+		}
+		e.OnIssue = onIssue
 	}
 }
 

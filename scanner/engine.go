@@ -5,11 +5,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ostefani/subnetlens/fingerprint"
 	"github.com/ostefani/subnetlens/models"
 	"github.com/ostefani/subnetlens/scanner/contracts"
 	icmptransport "github.com/ostefani/subnetlens/transports/icmp"
-	tcptransport "github.com/ostefani/subnetlens/transports/tcp"
 )
 
 type Engine struct {
@@ -24,7 +22,7 @@ type Engine struct {
 	hostClassifiers  []contracts.HostClassifier
 }
 
-// NewEngine constructs a production-ready engine with the default scanner
+// NewEngine constructs a production-ready engine with the core
 // collaborators wired in.
 func NewEngine(opts models.ScanOptions, socketBudget int, options ...Option) *Engine {
 	engine := &Engine{
@@ -52,8 +50,6 @@ func NewEngine(opts models.ScanOptions, socketBudget int, options ...Option) *En
 		},
 	}
 
-	engine.RegisterHostScanner(tcptransport.NewHostScanner())
-	engine.RegisterHostClassifier(fingerprint.Detector{})
 	for _, option := range options {
 		option(engine)
 	}
@@ -224,10 +220,7 @@ func (e *Engine) runHostScanners(
 	runtime *ScanRuntime,
 	deps engineDependencies,
 ) {
-	if len(e.hostScanners) == 0 {
-		deps.portScanner.Scan(ctx, host, e.Opts, runtime)
-		return
-	}
+	deps.portScanner.Scan(ctx, host, e.Opts, runtime)
 
 	for _, hostScanner := range e.hostScanners {
 		hostScanner.ScanHost(ctx, host, e.Opts, runtime)
@@ -235,19 +228,9 @@ func (e *Engine) runHostScanners(
 }
 
 func (e *Engine) classifyHost(host *models.Host, deps engineDependencies) {
-	if len(e.hostClassifiers) == 0 {
-		snapshot := host.Snapshot()
-		openPorts := snapshot.OpenPorts()
-		detectedOS, detectedDevice := deps.osDetector.Detect(openPorts)
-		host.SetOS(detectedOS)
-		host.SetDeviceIfEmpty(detectedDevice)
-		return
-	}
-
 	snapshot := host.Snapshot()
 	openPorts := snapshot.OpenPorts()
-	hostOS := ""
-	device := ""
+	hostOS, device := deps.osDetector.Detect(openPorts)
 	for _, classifier := range e.hostClassifiers {
 		detectedOS, detectedDevice := classifier.ClassifyHost(openPorts)
 		if detectedOS != "" {

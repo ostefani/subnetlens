@@ -54,3 +54,13 @@ type HostScanner interface {
 type HostClassifier interface {
 	ClassifyHost([]models.Port) (string, string)
 }
+
+type AdditionalSocketDemand struct {
+	Fixed            int
+	PerScanSlot      int
+	PerDiscoverySlot int
+}
+
+type SocketDemandReporter interface {
+	AdditionalSocketDemand(models.ScanOptions) AdditionalSocketDemand
+}
