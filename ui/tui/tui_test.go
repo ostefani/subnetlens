@@ -330,8 +330,6 @@ func TestWaitForHostReturnsNilWhenClosed(t *testing.T) {
 func TestRenderRandomizedMACFootnote(t *testing.T) {
 	host := models.NewHost("192.168.1.44")
 	host.SetRandomizedMAC(true)
-	host.SetVendor(randomizedMACVendorValue)
-	host.SetDevice(randomizedMACDeviceValue)
 
 	footnote := renderRandomizedMACFootnote([]*models.Host{host})
 	if footnote == "" {

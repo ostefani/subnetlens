@@ -171,8 +171,8 @@ func plainHostReady(snapshot models.HostSnapshot) bool {
 	return snapshot.Hostname != "" &&
 		snapshot.Hostname != snapshot.IP &&
 		snapshot.MAC != "" &&
-		snapshot.Vendor != "" &&
-		snapshot.Device != ""
+		(snapshot.RandomizedMAC ||
+			(snapshot.Vendor != "" && snapshot.Device != ""))
 }
 
 func printPlainHost(snapshot models.HostSnapshot) {
@@ -182,12 +182,16 @@ func printPlainHost(snapshot models.HostSnapshot) {
 	}
 
 	vendor := snapshot.Vendor
-	if vendor == "" {
+	if snapshot.RandomizedMAC {
+		vendor = "Randomized MAC*"
+	} else if vendor == "" {
 		vendor = "—"
 	}
 
 	device := snapshot.Device
-	if device == "" {
+	if snapshot.RandomizedMAC {
+		device = "Randomized MAC*"
+	} else if device == "" {
 		device = "—"
 	}
 

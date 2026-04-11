@@ -8,9 +8,7 @@ import (
 )
 
 const (
-	randomizedMACVendorValue = "Randomized MAC — vendor unknown"
-	randomizedMACDeviceValue = "Randomized MAC — device undetectable"
-	randomizedMACLabel       = "Randomized MAC*"
+	randomizedMACLabel = "Randomized MAC*"
 
 	hostBatchSize = 16
 )

@@ -26,7 +26,7 @@ func TestEnrichHostMarksRandomizedMACInSnapshot(t *testing.T) {
 	if !snapshot.RandomizedMAC {
 		t.Fatalf("expected randomized MAC flag, got %+v", snapshot)
 	}
-	if snapshot.Vendor == "" || snapshot.Device == "" {
-		t.Fatalf("expected randomized MAC placeholders, got %+v", snapshot)
+	if snapshot.Vendor != "" || snapshot.Device != "" {
+		t.Fatalf("expected randomized MAC detection to avoid placeholder strings, got %+v", snapshot)
 	}
 }
