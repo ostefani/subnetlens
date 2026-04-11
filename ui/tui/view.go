@@ -331,7 +331,7 @@ func renderRandomizedMACFootnote(hosts []*models.Host) string {
 			continue
 		}
 		snapshot := host.Snapshot()
-		if snapshot.Vendor == randomizedMACVendorValue || snapshot.Device == randomizedMACDeviceValue {
+		if snapshot.RandomizedMAC {
 			return footnoteStyle.Render("* For Randomized MAC vendor and device are undetectable.")
 		}
 	}
@@ -380,29 +380,25 @@ func hostTableRow(snapshot models.HostSnapshot) []string {
 		truncateCell(snapshot.IP, ipColumnWidth-2),
 		truncateCell(snapshot.Hostname, hostnameColumnWidth-2),
 		orDefault(snapshot.MAC, "—"),
-		truncateCell(displayVendor(snapshot.Vendor), vendorColumnWidth-2),
+		truncateCell(displayVendor(snapshot), vendorColumnWidth-2),
 		hostOSLabel(snapshot.OS),
-		truncateCell(displayDevice(snapshot.Device), deviceColumnWidth-2),
+		truncateCell(displayDevice(snapshot), deviceColumnWidth-2),
 		formatPorts(snapshot.OpenPorts()),
 	}
 }
 
-func displayVendor(vendor string) string {
-	switch vendor {
-	case randomizedMACVendorValue:
+func displayVendor(snapshot models.HostSnapshot) string {
+	if snapshot.RandomizedMAC {
 		return randomizedMACLabel
-	default:
-		return orDefault(vendor, "—")
 	}
+	return orDefault(snapshot.Vendor, "—")
 }
 
-func displayDevice(device string) string {
-	switch device {
-	case randomizedMACDeviceValue:
+func displayDevice(snapshot models.HostSnapshot) string {
+	if snapshot.RandomizedMAC {
 		return randomizedMACLabel
-	default:
-		return orDefault(device, "—")
 	}
+	return orDefault(snapshot.Device, "—")
 }
 
 func hostOSLabel(hostOS string) string {

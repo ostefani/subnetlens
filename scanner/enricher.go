@@ -15,7 +15,9 @@ func EnrichHost(h *models.Host, arp *ARPCache) {
 	snapshot := h.Snapshot()
 
 	if snapshot.MAC != "" {
-		if isMACRandomized(snapshot.MAC) {
+		randomizedMAC := isMACRandomized(snapshot.MAC)
+		h.SetRandomizedMAC(randomizedMAC)
+		if randomizedMAC {
 			h.SetVendor("Randomized MAC — vendor unknown")
 			h.SetDevice("Randomized MAC — device undetectable")
 		} else if snapshot.Vendor == "" {

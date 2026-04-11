@@ -49,6 +49,20 @@ func TestSetHostnameRejectsTextThatSanitizesEmpty(t *testing.T) {
 	}
 }
 
+func TestSetRandomizedMACUpdatesSnapshot(t *testing.T) {
+	host := NewHost("192.168.1.20")
+
+	if !host.SetRandomizedMAC(true) {
+		t.Fatal("expected randomized MAC flag update to succeed")
+	}
+	if !host.Snapshot().RandomizedMAC {
+		t.Fatalf("expected randomized MAC flag in snapshot, got %+v", host.Snapshot())
+	}
+	if host.SetRandomizedMAC(true) {
+		t.Fatal("expected no-op randomized MAC update to report unchanged")
+	}
+}
+
 func TestScanOptionsScanConcurrencyLimitDefaults(t *testing.T) {
 	opts := ScanOptions{}
 
@@ -93,6 +107,7 @@ func TestHostConcurrentMutationAndSnapshot(t *testing.T) {
 		for i := 0; i < 200; i++ {
 			host.SetHostname("workstation")
 			host.SetMAC("00:1c:b3:00:00:01")
+			host.SetRandomizedMAC(true)
 			host.SetVendor("Apple")
 			host.SetDevice("Laptop")
 			host.SetOS("Linux")
@@ -142,6 +157,9 @@ func TestHostConcurrentMutationAndSnapshot(t *testing.T) {
 	}
 	if snapshot.MAC != "00:1c:b3:00:00:01" {
 		t.Fatalf("expected stable MAC, got %q", snapshot.MAC)
+	}
+	if !snapshot.RandomizedMAC {
+		t.Fatal("expected randomized MAC flag to remain true")
 	}
 	if snapshot.Vendor != "Apple" {
 		t.Fatalf("expected stable vendor, got %q", snapshot.Vendor)
