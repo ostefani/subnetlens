@@ -449,11 +449,6 @@ func TestEngineReportsNonFatalIssues(t *testing.T) {
 			Timeout:     50 * time.Millisecond,
 			Concurrency: 1,
 		},
-		OnIssue: func(issue models.ScanIssue) {
-			mu.Lock()
-			got = append(got, issue)
-			mu.Unlock()
-		},
 		deps: engineDependencies{
 			ouiLoader:           &countingOUILoader{err: errors.New("missing oui data")},
 			icmpFactory:         &stubICMPFactory{factory: errors.New("raw socket denied")},
@@ -470,6 +465,11 @@ func TestEngineReportsNonFatalIssues(t *testing.T) {
 			osDetector:   &stubOSDetector{},
 		},
 	}
+	WithOnIssue(func(issue models.ScanIssue) {
+		mu.Lock()
+		got = append(got, issue)
+		mu.Unlock()
+	})(engine)
 
 	result := engine.Run(context.Background())
 
@@ -530,9 +530,6 @@ func TestEngineCoordinatesHostUpdatesWithScanCompletion(t *testing.T) {
 			Timeout:     50 * time.Millisecond,
 			Concurrency: 1,
 		},
-		OnHost: func(h *models.Host) {
-			callbacks <- h.Snapshot()
-		},
 		deps: engineDependencies{
 			ouiLoader:           ouiLoader,
 			icmpFactory:         icmpFactory,
@@ -546,6 +543,9 @@ func TestEngineCoordinatesHostUpdatesWithScanCompletion(t *testing.T) {
 			osDetector:          osDetector,
 		},
 	}
+	WithOnHost(func(h *models.Host) {
+		callbacks <- h.Snapshot()
+	})(engine)
 
 	resultCh := make(chan *models.ScanResult, 1)
 	go func() {
@@ -685,9 +685,6 @@ func TestEngineMergesPassiveMDNSObservationsBeforeHostReady(t *testing.T) {
 			Timeout:     50 * time.Millisecond,
 			Concurrency: 1,
 		},
-		OnHost: func(h *models.Host) {
-			callbacks <- h.Snapshot()
-		},
 		deps: engineDependencies{
 			ouiLoader:   &countingOUILoader{},
 			icmpFactory: &stubICMPFactory{factory: errors.New("icmp unavailable in test")},
@@ -717,6 +714,9 @@ func TestEngineMergesPassiveMDNSObservationsBeforeHostReady(t *testing.T) {
 			osDetector:   &stubOSDetector{},
 		},
 	}
+	WithOnHost(func(h *models.Host) {
+		callbacks <- h.Snapshot()
+	})(engine)
 
 	resultCh := make(chan *models.ScanResult, 1)
 	go func() {

@@ -13,9 +13,9 @@ import (
 type Engine struct {
 	Opts             models.ScanOptions
 	SocketBudget     int
-	OnHost           func(h *models.Host)  // called when a host is ready or later updated
-	OnProgress       func(done, total int) // called after each ping probe in discovery
-	OnIssue          func(issue models.ScanIssue)
+	onHost           func(h *models.Host)  // called when a host is ready or later updated
+	onProgress       func(done, total int) // called after each ping probe in discovery
+	onIssue          func(issue models.ScanIssue)
 	deps             engineDependencies
 	discoveryModules []contracts.DiscoveryModule
 	hostScanners     []contracts.HostScanner
@@ -68,7 +68,7 @@ func (e *Engine) Run(ctx context.Context) *models.ScanResult {
 		Subnet:    e.Opts.Subnet,
 		StartedAt: time.Now(),
 	}
-	issues := newIssueRecorder(result, e.OnIssue)
+	issues := newIssueRecorder(result, e.onIssue)
 
 	if err := deps.ouiLoader.LoadOUICSV(); err != nil {
 		issues.Report(warningIssue("oui", "OUI vendor data unavailable: %v", err))
@@ -162,8 +162,8 @@ func (e *Engine) Run(ctx context.Context) *models.ScanResult {
 
 				e.classifyHost(scannedHost, deps)
 
-				if e.OnHost != nil {
-					e.OnHost(scannedHost)
+				if e.onHost != nil {
+					e.onHost(scannedHost)
 				}
 			}(event.Host, ready)
 
@@ -181,8 +181,8 @@ func (e *Engine) Run(ctx context.Context) *models.ScanResult {
 
 			select {
 			case <-ready:
-				if e.OnHost != nil {
-					e.OnHost(event.Host)
+				if e.onHost != nil {
+					e.onHost(event.Host)
 				}
 			default:
 			}
@@ -204,7 +204,7 @@ func (e *Engine) runDiscoveryModules(
 	arpCache *ARPCache,
 ) <-chan contracts.HostObservation {
 	streams := make([]<-chan contracts.HostObservation, 0, 1+len(e.discoveryModules))
-	streams = append(streams, deps.hostDiscoverer.Discover(ctx, e.Opts, e.OnProgress, cache, icmpScanner, arpCache, runtime))
+	streams = append(streams, deps.hostDiscoverer.Discover(ctx, e.Opts, e.onProgress, cache, icmpScanner, arpCache, runtime))
 	for _, discoveryModule := range e.discoveryModules {
 		if discoveryModule == nil {
 			continue

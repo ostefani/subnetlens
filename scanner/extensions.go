@@ -30,7 +30,7 @@ func WithOnHost(onHost func(*models.Host)) Option {
 		if e == nil {
 			return
 		}
-		e.OnHost = onHost
+		e.onHost = onHost
 	}
 }
 
@@ -39,7 +39,7 @@ func WithOnProgress(onProgress func(done, total int)) Option {
 		if e == nil {
 			return
 		}
-		e.OnProgress = onProgress
+		e.onProgress = onProgress
 	}
 }
 
@@ -48,7 +48,7 @@ func WithOnIssue(onIssue func(models.ScanIssue)) Option {
 		if e == nil {
 			return
 		}
-		e.OnIssue = onIssue
+		e.onIssue = onIssue
 	}
 }
 
