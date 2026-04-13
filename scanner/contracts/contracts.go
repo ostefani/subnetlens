@@ -25,6 +25,7 @@ type HostObservation struct {
 	MAC     string
 	Name    string
 	Alive   bool
+	Weak    bool
 	Latency time.Duration
 	Source  models.HostSource
 }
