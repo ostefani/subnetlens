@@ -79,6 +79,7 @@ func DiscoverHosts(
 						IP:     ip,
 						MAC:    mac,
 						Alive:  true,
+						Weak:   true,
 						Source: models.HostSourceARP,
 					})
 				}, scanDone)
@@ -165,6 +166,7 @@ func localHostObservations(info LocalDiscoveryInfo) []contracts.HostObservation 
 		MAC:    info.MAC,
 		Name:   info.Hostname,
 		Alive:  true,
+		Weak:   false,
 		Source: models.HostSourceSelf,
 	}}
 }
@@ -262,6 +264,7 @@ func probeHostSmart(
 				IP:     ip,
 				MAC:    mac,
 				Alive:  true,
+				Weak:   true,
 				Source: models.HostSourceARP,
 			})
 		}
@@ -278,6 +281,7 @@ func probeHostSmart(
 			IP:     ip,
 			Name:   res.name,
 			Alive:  res.provesLiveness,
+			Weak:   !res.provesLiveness,
 			Source: res.source,
 		})
 	}
@@ -286,6 +290,7 @@ func probeHostSmart(
 		observations = append(observations, contracts.HostObservation{
 			IP:      ip,
 			Alive:   true,
+			Weak:    false,
 			Latency: latency,
 			Source:  seenBy,
 		})

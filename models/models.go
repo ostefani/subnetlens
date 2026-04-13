@@ -92,6 +92,7 @@ type Host struct {
 	Source    HostSource
 
 	alive bool
+	weak  bool
 }
 
 type HostSnapshot struct {
@@ -108,6 +109,7 @@ type HostSnapshot struct {
 	UpdatedAt     time.Time
 	Source        HostSource
 	Alive         bool
+	Weak          bool
 }
 
 func NewHost(ip string) *Host {
@@ -149,6 +151,7 @@ func (h *Host) Snapshot() HostSnapshot {
 		UpdatedAt:     h.UpdatedAt,
 		Source:        h.Source,
 		Alive:         h.alive,
+		Weak:          h.weak,
 	}
 	if len(h.Ports) > 0 {
 		snapshot.Ports = append([]Port(nil), h.Ports...)
@@ -214,6 +217,32 @@ func (h *Host) SetAlive(v bool) bool {
 		return false
 	}
 	h.alive = v
+	return true
+}
+
+func (h *Host) IsWeak() bool {
+	if h == nil {
+		return false
+	}
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	return h.weak
+}
+
+func (h *Host) SetWeak(v bool) bool {
+	if h == nil {
+		return false
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.weak == v {
+		return false
+	}
+	h.weak = v
 	return true
 }
 

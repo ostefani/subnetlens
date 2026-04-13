@@ -73,24 +73,38 @@ func mergeObservation(h *models.Host, u contracts.HostObservation) bool {
 
 	changed := false
 
+	// Standard Metadata Updates
 	if h.SetMACIfEmpty(u.MAC) {
 		changed = true
 	}
-
 	if h.SetHostnameIfEmptyOrIP(u.Name) {
 		changed = true
 	}
-
-	if u.Alive && h.SetAlive(true) {
-		changed = true
-	}
-
 	if h.SetLatencyIfZero(u.Latency) {
 		changed = true
 	}
 
+	// Update the Source FIRST
 	if h.MarkSeen(u.Source) {
 		changed = true
+	}
+
+	// Update Liveness and Weak Status
+	if u.Alive {
+		if h.SetAlive(true) {
+			changed = true
+		}
+
+		var targetWeak bool
+		if !u.Weak {
+			targetWeak = false
+		} else {
+			targetWeak = (h.Source == models.HostSourceARP) && len(h.Snapshot().Ports) == 0
+		}
+
+		if h.SetWeak(targetWeak) {
+			changed = true
+		}
 	}
 
 	return changed
