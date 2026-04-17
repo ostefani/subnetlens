@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Olha Stefanishyna. MIT License.
 package tcp
 
 import (
@@ -67,7 +68,9 @@ Loop:
 		results = append(results, p)
 	}
 
-	host.SetProtocolPorts("tcp", results)
+	// An open TCP port is direct liveness evidence, so we promote the host
+	// to alive/strong in the same locked update as the port replacement.
+	host.SetProtocolPortsAndMarkAlive("tcp", results)
 }
 
 func ProbeOpenPort(ctx context.Context, ip string, timeout time.Duration, limiter contracts.SocketLimiter) (bool, time.Duration) {

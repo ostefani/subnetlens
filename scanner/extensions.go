@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Olha Stefanishyna. MIT License.
+
 package scanner
 
 import (
@@ -31,6 +33,15 @@ func WithOnHost(onHost func(*models.Host)) Option {
 			return
 		}
 		e.onHost = onHost
+	}
+}
+
+func WithARPCache(cache *ARPCache) Option {
+	return func(e *Engine) {
+		if e == nil {
+			return
+		}
+		e.arpCache = cache
 	}
 }
 

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Olha Stefanishyna. MIT License.
+
 package textutil
 
 import (

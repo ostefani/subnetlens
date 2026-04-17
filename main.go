@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Olha Stefanishyna. MIT License.
 package main
 
 import "github.com/ostefani/subnetlens/cmd"

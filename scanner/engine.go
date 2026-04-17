@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Olha Stefanishyna. MIT License.
+
 package scanner
 
 import (
@@ -20,6 +22,7 @@ type Engine struct {
 	discoveryModules []contracts.DiscoveryModule
 	hostScanners     []contracts.HostScanner
 	hostClassifiers  []contracts.HostClassifier
+	arpCache         *ARPCache
 }
 
 // NewEngine constructs a production-ready engine with the core
@@ -90,7 +93,10 @@ func (e *Engine) Run(ctx context.Context) *models.ScanResult {
 	if err != nil {
 		issues.Report(warningIssue("mdns", "passive mDNS listener unavailable: %v", err))
 	}
-	arpCache := &ARPCache{}
+	arpCache := e.arpCache
+	if arpCache == nil {
+		arpCache = &ARPCache{}
+	}
 	arpCache.SetErrorHandler(func(err error) {
 		issues.Report(warningIssue("arp", "ARP table unavailable: %v", err))
 	})

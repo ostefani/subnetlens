@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Olha Stefanishyna. MIT License.
+
 package contracts
 
 import (
@@ -21,13 +23,14 @@ type Runtime interface {
 }
 
 type HostObservation struct {
-	IP      string
-	MAC     string
-	Name    string
-	Alive   bool
-	Weak    bool
-	Latency time.Duration
-	Source  models.HostSource
+	IP       string
+	MAC      string
+	Name     string
+	Alive    bool
+	Weak     bool
+	Latency  time.Duration
+	Source   models.HostSource
+	Identity models.HostIdentity
 }
 
 type DiscoveryTargets interface {

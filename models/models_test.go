@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Olha Stefanishyna. MIT License.
+
 package models
 
 import (
@@ -60,6 +62,163 @@ func TestSetRandomizedMACUpdatesSnapshot(t *testing.T) {
 	}
 	if host.SetRandomizedMAC(true) {
 		t.Fatal("expected no-op randomized MAC update to report unchanged")
+	}
+}
+
+func TestZeroValueSnapshotIdentityMetadataIsSafe(t *testing.T) {
+	var snapshot HostSnapshot
+	snapshot.applyIdentityMetadata()
+
+	if snapshot.HostID != "" {
+		t.Fatalf("expected empty host id, got %q", snapshot.HostID)
+	}
+	if snapshot.IdentitySource != IdentitySourceUnknown {
+		t.Fatalf("expected unknown identity source, got %q", snapshot.IdentitySource)
+	}
+	if len(snapshot.IdentityAliases) != 0 {
+		t.Fatalf("expected no identity aliases, got %+v", snapshot.IdentityAliases)
+	}
+	if len(snapshot.IdentityAnchorKeys) != 0 {
+		t.Fatalf("expected no identity anchor keys, got %+v", snapshot.IdentityAnchorKeys)
+	}
+}
+
+func TestSnapshotIdentityUsesStableMACWhenAvailable(t *testing.T) {
+	host := NewHost("192.168.1.20")
+	host.SetHostname("workstation")
+	host.SetMAC("00:1c:b3:00:00:01")
+
+	snapshot := host.Snapshot()
+	if snapshot.HostID != "mac:00:1c:b3:00:00:01" {
+		t.Fatalf("expected MAC-based host id, got %q", snapshot.HostID)
+	}
+	if snapshot.IdentityConfidence != IdentityConfidenceHigh {
+		t.Fatalf("expected high identity confidence, got %q", snapshot.IdentityConfidence)
+	}
+	if snapshot.IdentitySource != IdentitySourceMAC {
+		t.Fatalf("expected MAC identity source, got %q", snapshot.IdentitySource)
+	}
+	if len(snapshot.IdentityAliases) != 3 {
+		t.Fatalf("expected ip/mac/name aliases, got %+v", snapshot.IdentityAliases)
+	}
+	if snapshot.IdentityAliases[0] != "ip:192.168.1.20" ||
+		snapshot.IdentityAliases[1] != "mac:00:1c:b3:00:00:01" ||
+		snapshot.IdentityAliases[2] != "name:workstation" {
+		t.Fatalf("unexpected identity aliases: %+v", snapshot.IdentityAliases)
+	}
+	if len(snapshot.IdentityAnchorKeys) != 3 {
+		t.Fatalf("expected ip/mac/pair anchor keys, got %+v", snapshot.IdentityAnchorKeys)
+	}
+	if snapshot.IdentityAnchorKeys[2] != "pair:00:1c:b3:00:00:01@192.168.1.20" {
+		t.Fatalf("unexpected pair anchor key: %+v", snapshot.IdentityAnchorKeys)
+	}
+}
+
+func TestSnapshotIdentityFallsBackToIPWhenMACIsRandomized(t *testing.T) {
+	host := NewHost("192.168.1.20")
+	host.SetHostname("phone")
+	host.SetMAC("02:11:22:33:44:55")
+	host.SetRandomizedMAC(true)
+
+	snapshot := host.Snapshot()
+	if snapshot.HostID != "ip:192.168.1.20" {
+		t.Fatalf("expected IP-based host id for randomized MAC, got %q", snapshot.HostID)
+	}
+	if snapshot.IdentityConfidence != IdentityConfidenceLow {
+		t.Fatalf("expected low identity confidence, got %q", snapshot.IdentityConfidence)
+	}
+	if snapshot.IdentitySource != IdentitySourceIP {
+		t.Fatalf("expected IP identity source, got %q", snapshot.IdentitySource)
+	}
+	if len(snapshot.IdentityAliases) != 2 {
+		t.Fatalf("expected ip/name aliases only, got %+v", snapshot.IdentityAliases)
+	}
+	if snapshot.IdentityAliases[0] != "ip:192.168.1.20" || snapshot.IdentityAliases[1] != "name:phone" {
+		t.Fatalf("unexpected identity aliases: %+v", snapshot.IdentityAliases)
+	}
+	if len(snapshot.IdentityAnchorKeys) != 1 {
+		t.Fatalf("expected ip anchor key only, got %+v", snapshot.IdentityAnchorKeys)
+	}
+	if snapshot.IdentityAnchorKeys[0] != "ip:192.168.1.20" {
+		t.Fatalf("unexpected identity anchor keys: %+v", snapshot.IdentityAnchorKeys)
+	}
+}
+
+func TestSnapshotIdentityPrefersProducerProvidedIdentity(t *testing.T) {
+	host := NewHost("192.168.1.20")
+	host.SetHostname("printer")
+	host.SetMAC("00:1c:b3:00:00:01")
+	host.SetIdentity(HostIdentity{
+		HostID:             "asset:printer-01",
+		IdentityConfidence: IdentityConfidenceHigh,
+		IdentityAliases:    []string{"asset:printer-01"},
+		IdentityAnchorKeys: []string{"site:lab-a"},
+	})
+
+	snapshot := host.Snapshot()
+	if snapshot.HostID != "asset:printer-01" {
+		t.Fatalf("expected producer-provided host id, got %q", snapshot.HostID)
+	}
+	if snapshot.IdentityConfidence != IdentityConfidenceHigh {
+		t.Fatalf("expected producer-provided confidence, got %q", snapshot.IdentityConfidence)
+	}
+	if snapshot.IdentitySource != IdentitySourceProvided {
+		t.Fatalf("expected provided identity source, got %q", snapshot.IdentitySource)
+	}
+	if len(snapshot.IdentityAliases) != 4 {
+		t.Fatalf("expected provided alias plus derived aliases, got %+v", snapshot.IdentityAliases)
+	}
+	if snapshot.IdentityAliases[0] != "ip:192.168.1.20" ||
+		snapshot.IdentityAliases[1] != "mac:00:1c:b3:00:00:01" ||
+		snapshot.IdentityAliases[2] != "name:printer" ||
+		snapshot.IdentityAliases[3] != "asset:printer-01" {
+		t.Fatalf("unexpected identity aliases: %+v", snapshot.IdentityAliases)
+	}
+	if len(snapshot.IdentityAnchorKeys) != 4 {
+		t.Fatalf("expected provided anchor plus derived anchors, got %+v", snapshot.IdentityAnchorKeys)
+	}
+	if snapshot.IdentityAnchorKeys[3] != "site:lab-a" {
+		t.Fatalf("unexpected identity anchor keys: %+v", snapshot.IdentityAnchorKeys)
+	}
+}
+
+func TestSnapshotIdentityKeepsProvidedSourceWhenHostIDIsCustom(t *testing.T) {
+	host := NewHost("192.168.1.20")
+	host.SetMAC("00:1c:b3:00:00:01")
+	host.SetIdentity(HostIdentity{
+		HostID:             "asset:printer-01",
+		IdentityConfidence: IdentityConfidenceHigh,
+		IdentitySource:     IdentitySourceMAC,
+	})
+
+	snapshot := host.Snapshot()
+	if snapshot.IdentitySource != IdentitySourceProvided {
+		t.Fatalf("expected custom host id to keep provided identity source, got %q", snapshot.IdentitySource)
+	}
+}
+
+func TestApplyIdentityMetadataDoesNotOverwriteExistingHostID(t *testing.T) {
+	snapshot := HostSnapshot{
+		IP:                 "192.168.1.20",
+		MAC:                "00:1c:b3:00:00:01",
+		HostID:             "asset:printer-01",
+		IdentityConfidence: IdentityConfidenceHigh,
+		IdentitySource:     IdentitySourceProvided,
+	}
+
+	snapshot.applyIdentityMetadata()
+
+	if snapshot.HostID != "asset:printer-01" {
+		t.Fatalf("expected existing host id to be preserved, got %q", snapshot.HostID)
+	}
+	if snapshot.IdentitySource != IdentitySourceProvided {
+		t.Fatalf("expected existing identity source to be preserved, got %q", snapshot.IdentitySource)
+	}
+	if len(snapshot.IdentityAliases) != 2 {
+		t.Fatalf("expected derived aliases to be added without overriding identity, got %+v", snapshot.IdentityAliases)
+	}
+	if len(snapshot.IdentityAnchorKeys) != 3 {
+		t.Fatalf("expected derived anchors to be added without overriding identity, got %+v", snapshot.IdentityAnchorKeys)
 	}
 }
 
@@ -248,6 +407,56 @@ func TestSetProtocolPortsReplacesOnlyMatchingProtocol(t *testing.T) {
 	}
 	if openPorts[1].Number != 161 || openPorts[1].Protocol != "udp" {
 		t.Fatalf("expected second open port to remain untouched, got %+v", openPorts[1])
+	}
+}
+
+func TestSetProtocolPortsAndMarkAlivePromotesHostOnOpenPort(t *testing.T) {
+	host := NewHost("192.168.1.20")
+	host.SetWeak(true)
+
+	if !host.SetProtocolPortsAndMarkAlive("tcp", []Port{{
+		Number: 443,
+		State:  PortOpen,
+	}}) {
+		t.Fatal("expected protocol update to change host")
+	}
+
+	snapshot := host.Snapshot()
+	if !snapshot.Alive {
+		t.Fatal("expected open protocol port to mark host alive")
+	}
+	if snapshot.Weak {
+		t.Fatal("expected open protocol port to clear weak state")
+	}
+	if len(snapshot.OpenPorts()) != 1 || snapshot.OpenPorts()[0].Number != 443 {
+		t.Fatalf("expected open TCP port to be stored, got %+v", snapshot.OpenPorts())
+	}
+}
+
+func TestMergeLivenessDoesNotLetWeakObservationDowngradeStrongHost(t *testing.T) {
+	host := NewHost("192.168.1.20")
+
+	if !host.MergeLiveness(true, true, HostSourceARP) {
+		t.Fatal("expected weak observation to update host")
+	}
+	if !host.Snapshot().Weak {
+		t.Fatal("expected initial ARP-only observation to mark host weak")
+	}
+
+	if !host.MergeLiveness(true, false, HostSourceICMP) {
+		t.Fatal("expected strong observation to update host")
+	}
+	snapshot := host.Snapshot()
+	if !snapshot.Alive {
+		t.Fatal("expected strong observation to mark host alive")
+	}
+	if snapshot.Weak {
+		t.Fatal("expected strong observation to clear weak state")
+	}
+
+	host.MergeLiveness(true, true, HostSourceARP)
+	if host.Snapshot().Weak {
+		t.Fatal("expected later weak observation not to downgrade strong host")
 	}
 }
 
