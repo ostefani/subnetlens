@@ -4,6 +4,7 @@ package scanner
 
 import (
 	"sync"
+	"time"
 
 	"github.com/ostefani/subnetlens/models"
 )
@@ -24,6 +25,12 @@ func (c *mdnsCache) LookupName(ip string) (resolveResult, bool) {
 	defer c.mu.RUnlock()
 
 	res, ok := c.names[ip]
+	if !ok {
+		return resolveResult{}, false
+	}
+	if !res.expiresAt.IsZero() && time.Now().After(res.expiresAt) {
+		return resolveResult{}, false
+	}
 	return res, ok
 }
 
@@ -39,13 +46,22 @@ func (c *mdnsCache) storeName(ip, name string, source models.HostSource) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	observedAt := time.Now()
+	expiresAt := observedAt.Add(cachedNameEvidenceTTL)
 	if existing, exists := c.names[ip]; exists {
 		if existing.name == name && existing.source == source {
-			return false
+			existing.observedAt = observedAt
+			existing.expiresAt = expiresAt
+			c.names[ip] = existing
+			return true
 		}
-		return false
 	}
 
-	c.names[ip] = resolveResult{name: name, source: source}
+	c.names[ip] = resolveResult{
+		name:       name,
+		source:     source,
+		observedAt: observedAt,
+		expiresAt:  expiresAt,
+	}
 	return true
 }

@@ -17,6 +17,8 @@ type resolveResult struct {
 	latency        time.Duration
 	source         models.HostSource
 	provesLiveness bool
+	observedAt     time.Time
+	expiresAt      time.Time
 }
 
 type observedConn struct {

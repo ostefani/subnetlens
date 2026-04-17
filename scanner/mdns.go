@@ -21,6 +21,7 @@ func resolveHostname(ctx context.Context, ip string, cache nameCache, socketLimi
 
 	start := time.Now()
 	if name := mdnstransport.ResolveName(ctx, ip, socketLimiter); name != "" && name != ip {
+		observedAt := time.Now()
 		if cache != nil {
 			cache.StoreName(ip, name, models.HostSourceMDNS)
 		}
@@ -29,11 +30,14 @@ func resolveHostname(ctx context.Context, ip string, cache nameCache, socketLimi
 			latency:        time.Since(start),
 			source:         models.HostSourceMDNS,
 			provesLiveness: true,
+			observedAt:     observedAt,
+			expiresAt:      observedAt.Add(cachedNameEvidenceTTL),
 		}
 	}
 
 	start = time.Now()
 	if name := nbnstransport.ResolveName(ctx, ip, socketLimiter); name != "" {
+		observedAt := time.Now()
 		if cache != nil {
 			cache.StoreName(ip, name, models.HostSourceNBNS)
 		}
@@ -42,18 +46,23 @@ func resolveHostname(ctx context.Context, ip string, cache nameCache, socketLimi
 			latency:        time.Since(start),
 			source:         models.HostSourceNBNS,
 			provesLiveness: true,
+			observedAt:     observedAt,
+			expiresAt:      observedAt.Add(cachedNameEvidenceTTL),
 		}
 	}
 
 	start = time.Now()
 	if name := probePTR(ctx, ip, socketLimiter); name != "" && name != ip {
+		observedAt := time.Now()
 		if cache != nil {
 			cache.StoreName(ip, name, models.HostSourcePTR)
 		}
 		return resolveResult{
-			name:    name,
-			latency: time.Since(start),
-			source:  models.HostSourcePTR,
+			name:       name,
+			latency:    time.Since(start),
+			source:     models.HostSourcePTR,
+			observedAt: observedAt,
+			expiresAt:  observedAt.Add(cachedNameEvidenceTTL),
 		}
 	}
 

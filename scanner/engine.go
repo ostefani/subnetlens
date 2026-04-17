@@ -127,6 +127,7 @@ func (e *Engine) Run(ctx context.Context) *models.ScanResult {
 	go func() {
 		defer close(registry.updates)
 		for observation := range observationCh {
+			observation = stampObservationFreshness(observation)
 			if !sendHostObservation(runCtx, registry.updates, observation) {
 				return
 			}
