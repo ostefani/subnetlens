@@ -176,3 +176,33 @@ func TestHostRegistryWeakSignalDoesNotDowngradeStrongHost(t *testing.T) {
 		t.Fatal("expected later weak observation not to downgrade a strong host")
 	}
 }
+
+func TestHostRegistryAppliesProducerProvidedIdentity(t *testing.T) {
+	host := models.NewHost("192.168.1.40")
+
+	if !mergeObservation(host, contracts.HostObservation{
+		IP:     "192.168.1.40",
+		MAC:    "00:1c:b3:00:00:04",
+		Name:   "sensor",
+		Alive:  true,
+		Source: models.HostSourceMDNS,
+		Identity: models.HostIdentity{
+			HostID:             "asset:sensor-04",
+			IdentityConfidence: models.IdentityConfidenceHigh,
+			IdentityAliases:    []string{"asset:sensor-04"},
+		},
+	}) {
+		t.Fatal("expected observation to update host")
+	}
+
+	snapshot := host.Snapshot()
+	if snapshot.HostID != "asset:sensor-04" {
+		t.Fatalf("expected producer-provided host id, got %q", snapshot.HostID)
+	}
+	if snapshot.IdentitySource != models.IdentitySourceProvided {
+		t.Fatalf("expected provided identity source, got %q", snapshot.IdentitySource)
+	}
+	if len(snapshot.IdentityAliases) == 0 {
+		t.Fatal("expected identity aliases to be populated")
+	}
+}

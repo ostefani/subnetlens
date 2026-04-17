@@ -21,13 +21,14 @@ type Runtime interface {
 }
 
 type HostObservation struct {
-	IP      string
-	MAC     string
-	Name    string
-	Alive   bool
-	Weak    bool
-	Latency time.Duration
-	Source  models.HostSource
+	IP       string
+	MAC      string
+	Name     string
+	Alive    bool
+	Weak     bool
+	Latency  time.Duration
+	Source   models.HostSource
+	Identity models.HostIdentity
 }
 
 type DiscoveryTargets interface {

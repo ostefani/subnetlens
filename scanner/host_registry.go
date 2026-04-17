@@ -77,6 +77,9 @@ func mergeObservation(h *models.Host, u contracts.HostObservation) bool {
 	if h.SetHostnameIfEmptyOrIP(u.Name) {
 		changed = true
 	}
+	if h.SetIdentity(u.Identity) {
+		changed = true
+	}
 	if h.MergeLiveness(u.Alive, u.Weak, u.Source) {
 		changed = true
 	}

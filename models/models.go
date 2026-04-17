@@ -48,6 +48,30 @@ const (
 	HostSourceMixed HostSource = "mixed"
 )
 
+type IdentityConfidence string
+
+const (
+	IdentityConfidenceLow  IdentityConfidence = "low"
+	IdentityConfidenceHigh IdentityConfidence = "high"
+)
+
+type IdentitySource string
+
+const (
+	IdentitySourceUnknown  IdentitySource = ""
+	IdentitySourceIP       IdentitySource = "ip"
+	IdentitySourceMAC      IdentitySource = "mac"
+	IdentitySourceProvided IdentitySource = "provided"
+)
+
+type HostIdentity struct {
+	HostID             string
+	IdentityConfidence IdentityConfidence
+	IdentitySource     IdentitySource
+	IdentityAliases    []string
+	IdentityAnchorKeys []string
+}
+
 type ScanIssueLevel string
 
 const (
@@ -93,6 +117,9 @@ type Host struct {
 
 	alive bool
 	weak  bool
+
+	identity         HostIdentity
+	identityOverride HostIdentity
 }
 
 type HostSnapshot struct {
@@ -110,13 +137,21 @@ type HostSnapshot struct {
 	Source        HostSource
 	Alive         bool
 	Weak          bool
+
+	HostID             string
+	IdentityConfidence IdentityConfidence
+	IdentitySource     IdentitySource
+	IdentityAliases    []string
+	IdentityAnchorKeys []string
 }
 
 func NewHost(ip string) *Host {
-	return &Host{
+	host := &Host{
 		ip:       ip,
 		Hostname: ip,
 	}
+	host.rebuildIdentityLocked()
+	return host
 }
 
 func (h *Host) IP() string {
@@ -139,29 +174,193 @@ func (h *Host) Snapshot() HostSnapshot {
 	defer h.mu.RUnlock()
 
 	snapshot := HostSnapshot{
-		IP:            h.ip,
-		Hostname:      h.Hostname,
-		MAC:           h.MAC,
-		RandomizedMAC: h.RandomizedMAC,
-		Vendor:        h.Vendor,
-		Latency:       h.Latency,
-		OS:            h.OS,
-		Device:        h.Device,
-		SeenAt:        h.SeenAt,
-		UpdatedAt:     h.UpdatedAt,
-		Source:        h.Source,
-		Alive:         h.alive,
-		Weak:          h.weak,
+		IP:                 h.ip,
+		Hostname:           h.Hostname,
+		MAC:                h.MAC,
+		RandomizedMAC:      h.RandomizedMAC,
+		Vendor:             h.Vendor,
+		Latency:            h.Latency,
+		OS:                 h.OS,
+		Device:             h.Device,
+		SeenAt:             h.SeenAt,
+		UpdatedAt:          h.UpdatedAt,
+		Source:             h.Source,
+		Alive:              h.alive,
+		Weak:               h.weak,
+		HostID:             h.identity.HostID,
+		IdentityConfidence: h.identity.IdentityConfidence,
+		IdentitySource:     h.identity.IdentitySource,
 	}
 	if len(h.Ports) > 0 {
 		snapshot.Ports = append([]Port(nil), h.Ports...)
 	}
+	if len(h.identity.IdentityAliases) > 0 {
+		snapshot.IdentityAliases = append([]string(nil), h.identity.IdentityAliases...)
+	}
+	if len(h.identity.IdentityAnchorKeys) > 0 {
+		snapshot.IdentityAnchorKeys = append([]string(nil), h.identity.IdentityAnchorKeys...)
+	}
+	snapshot.applyIdentityMetadata()
 
 	return snapshot
 }
 
 func (s HostSnapshot) OpenPorts() []Port {
 	return filterOpenPorts(s.Ports)
+}
+
+func (s *HostSnapshot) applyIdentityMetadata() {
+	if s == nil {
+		return
+	}
+
+	derived := deriveIdentityMetadata(s.IP, s.Hostname, s.MAC, s.RandomizedMAC)
+	if s.HostID == "" {
+		s.HostID = derived.HostID
+	}
+	if s.IdentityConfidence == "" {
+		s.IdentityConfidence = derived.IdentityConfidence
+	}
+	if s.IdentitySource == "" {
+		s.IdentitySource = derived.IdentitySource
+	}
+	s.IdentityAliases = mergeIdentityValues(s.IdentityAliases, derived.IdentityAliases...)
+	s.IdentityAnchorKeys = mergeIdentityValues(s.IdentityAnchorKeys, derived.IdentityAnchorKeys...)
+}
+
+func deriveIdentity(ip, mac string, randomizedMAC bool) (string, IdentityConfidence, IdentitySource) {
+	if mac != "" && !randomizedMAC {
+		return "mac:" + mac, IdentityConfidenceHigh, IdentitySourceMAC
+	}
+	if ip != "" {
+		return "ip:" + ip, IdentityConfidenceLow, IdentitySourceIP
+	}
+	return "", IdentityConfidenceLow, IdentitySourceUnknown
+}
+
+func deriveIdentityMetadata(ip, hostname, mac string, randomizedMAC bool) HostIdentity {
+	hostID, confidence, source := deriveIdentity(ip, mac, randomizedMAC)
+	snapshot := HostSnapshot{
+		IP:            ip,
+		Hostname:      hostname,
+		MAC:           mac,
+		RandomizedMAC: randomizedMAC,
+	}
+	return HostIdentity{
+		HostID:             hostID,
+		IdentityConfidence: confidence,
+		IdentitySource:     source,
+		IdentityAliases:    deriveIdentityAliases(snapshot),
+		IdentityAnchorKeys: deriveIdentityAnchorKeys(snapshot),
+	}
+}
+
+func deriveIdentityAliases(snapshot HostSnapshot) []string {
+	var aliases []string
+	aliases = appendIdentityValue(aliases, "ip", snapshot.IP)
+	if !snapshot.RandomizedMAC {
+		aliases = appendIdentityValue(aliases, "mac", snapshot.MAC)
+	}
+	if snapshot.Hostname != "" && snapshot.Hostname != snapshot.IP {
+		aliases = appendIdentityValue(aliases, "name", snapshot.Hostname)
+	}
+	return aliases
+}
+
+func deriveIdentityAnchorKeys(snapshot HostSnapshot) []string {
+	var keys []string
+	keys = appendIdentityValue(keys, "ip", snapshot.IP)
+	if !snapshot.RandomizedMAC {
+		keys = appendIdentityValue(keys, "mac", snapshot.MAC)
+	}
+	if !snapshot.RandomizedMAC && snapshot.IP != "" && snapshot.MAC != "" {
+		keys = appendIdentityValue(keys, "pair", snapshot.MAC+"@"+snapshot.IP)
+	}
+	return keys
+}
+
+func appendIdentityValue(values []string, prefix, value string) []string {
+	if value == "" {
+		return values
+	}
+
+	entry := prefix + ":" + value
+	if slices.Contains(values, entry) {
+		return values
+	}
+	return append(values, entry)
+}
+
+func mergeIdentityValues(values []string, extras ...string) []string {
+	merged := append([]string(nil), values...)
+	for _, extra := range extras {
+		if extra == "" || slices.Contains(merged, extra) {
+			continue
+		}
+		merged = append(merged, extra)
+	}
+	return merged
+}
+
+func (h *Host) SetIdentity(identity HostIdentity) bool {
+	if h == nil {
+		return false
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	normalized := normalizeHostIdentity(identity)
+	if hostIdentityEqual(h.identityOverride, normalized) {
+		return false
+	}
+
+	h.identityOverride = normalized
+	h.rebuildIdentityLocked()
+	return true
+}
+
+func (h *Host) rebuildIdentityLocked() {
+	identity := deriveIdentityMetadata(h.ip, h.Hostname, h.MAC, h.RandomizedMAC)
+	override := h.identityOverride
+
+	if override.HostID != "" {
+		identity.HostID = override.HostID
+		identity.IdentitySource = IdentitySourceProvided
+		if override.IdentityConfidence != "" {
+			identity.IdentityConfidence = override.IdentityConfidence
+		} else {
+			identity.IdentityConfidence = IdentityConfidenceLow
+		}
+	}
+	if override.IdentitySource != "" {
+		identity.IdentitySource = override.IdentitySource
+	}
+	if override.IdentityConfidence != "" && override.HostID == "" {
+		identity.IdentityConfidence = override.IdentityConfidence
+	}
+
+	identity.IdentityAliases = mergeIdentityValues(identity.IdentityAliases, override.IdentityAliases...)
+	identity.IdentityAnchorKeys = mergeIdentityValues(identity.IdentityAnchorKeys, override.IdentityAnchorKeys...)
+	h.identity = identity
+}
+
+func normalizeHostIdentity(identity HostIdentity) HostIdentity {
+	return HostIdentity{
+		HostID:             identity.HostID,
+		IdentityConfidence: identity.IdentityConfidence,
+		IdentitySource:     identity.IdentitySource,
+		IdentityAliases:    mergeIdentityValues(nil, identity.IdentityAliases...),
+		IdentityAnchorKeys: mergeIdentityValues(nil, identity.IdentityAnchorKeys...),
+	}
+}
+
+func hostIdentityEqual(a, b HostIdentity) bool {
+	return a.HostID == b.HostID &&
+		a.IdentityConfidence == b.IdentityConfidence &&
+		a.IdentitySource == b.IdentitySource &&
+		slices.Equal(a.IdentityAliases, b.IdentityAliases) &&
+		slices.Equal(a.IdentityAnchorKeys, b.IdentityAnchorKeys)
 }
 
 func (h *Host) MarkSeen(source HostSource) bool {
@@ -295,6 +494,7 @@ func (h *Host) SetMAC(mac string) bool {
 		return false
 	}
 	h.MAC = mac
+	h.rebuildIdentityLocked()
 	return true
 }
 
@@ -310,6 +510,7 @@ func (h *Host) SetMACIfEmpty(mac string) bool {
 		return false
 	}
 	h.MAC = mac
+	h.rebuildIdentityLocked()
 	return true
 }
 
@@ -325,6 +526,7 @@ func (h *Host) SetRandomizedMAC(v bool) bool {
 		return false
 	}
 	h.RandomizedMAC = v
+	h.rebuildIdentityLocked()
 	return true
 }
 
@@ -341,6 +543,7 @@ func (h *Host) SetHostname(name string) bool {
 		return false
 	}
 	h.Hostname = name
+	h.rebuildIdentityLocked()
 	return true
 }
 
@@ -360,6 +563,7 @@ func (h *Host) SetHostnameIfEmptyOrIP(name string) bool {
 		return false
 	}
 	h.Hostname = name
+	h.rebuildIdentityLocked()
 	return true
 }
 
