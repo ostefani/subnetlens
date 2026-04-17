@@ -77,28 +77,10 @@ func mergeObservation(h *models.Host, u contracts.HostObservation) bool {
 	if h.SetHostnameIfEmptyOrIP(u.Name) {
 		changed = true
 	}
-	if u.Alive {
-		currentSource := h.SourceValue()
-		currentWeak := h.IsWeak()
-
-		if h.SetAlive(true) {
-			changed = true
-		}
-
-		if !u.Weak {
-			if h.SetWeak(false) {
-				changed = true
-			}
-		} else if currentSource == "" || currentWeak {
-			if h.SetWeak(true) {
-				changed = true
-			}
-		}
-	}
-	if h.SetLatencyIfZero(u.Latency) {
+	if h.MergeLiveness(u.Alive, u.Weak, u.Source) {
 		changed = true
 	}
-	if h.MarkSeen(u.Source) {
+	if h.SetLatencyIfZero(u.Latency) {
 		changed = true
 	}
 	return changed

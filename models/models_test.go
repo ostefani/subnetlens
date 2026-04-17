@@ -274,6 +274,33 @@ func TestSetProtocolPortsAndMarkAlivePromotesHostOnOpenPort(t *testing.T) {
 	}
 }
 
+func TestMergeLivenessDoesNotLetWeakObservationDowngradeStrongHost(t *testing.T) {
+	host := NewHost("192.168.1.20")
+
+	if !host.MergeLiveness(true, true, HostSourceARP) {
+		t.Fatal("expected weak observation to update host")
+	}
+	if !host.Snapshot().Weak {
+		t.Fatal("expected initial ARP-only observation to mark host weak")
+	}
+
+	if !host.MergeLiveness(true, false, HostSourceICMP) {
+		t.Fatal("expected strong observation to update host")
+	}
+	snapshot := host.Snapshot()
+	if !snapshot.Alive {
+		t.Fatal("expected strong observation to mark host alive")
+	}
+	if snapshot.Weak {
+		t.Fatal("expected strong observation to clear weak state")
+	}
+
+	host.MergeLiveness(true, true, HostSourceARP)
+	if host.Snapshot().Weak {
+		t.Fatal("expected later weak observation not to downgrade strong host")
+	}
+}
+
 func TestAddPortUpsertsExistingPort(t *testing.T) {
 	host := NewHost("192.168.1.20")
 

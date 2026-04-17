@@ -194,6 +194,43 @@ func (h *Host) markSeenLocked(source HostSource) bool {
 	return changed
 }
 
+// MergeLiveness applies an observation's liveness, weakness, and source under a
+// single lock so late weak signals cannot race with stronger confirmations.
+func (h *Host) MergeLiveness(alive, weak bool, source HostSource) bool {
+	if h == nil {
+		return false
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	changed := false
+	if alive && !h.alive {
+		h.alive = true
+		changed = true
+	}
+
+	if alive {
+		if !weak {
+			if h.weak {
+				h.weak = false
+				changed = true
+			}
+		} else if h.Source == "" || h.weak {
+			if !h.weak {
+				h.weak = true
+				changed = true
+			}
+		}
+	}
+
+	if source != "" && h.markSeenLocked(source) {
+		changed = true
+	}
+
+	return changed
+}
+
 func (h *Host) IsAlive() bool {
 	if h == nil {
 		return false
@@ -229,17 +266,6 @@ func (h *Host) IsWeak() bool {
 	defer h.mu.RUnlock()
 
 	return h.weak
-}
-
-func (h *Host) SourceValue() HostSource {
-	if h == nil {
-		return ""
-	}
-
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-
-	return h.Source
 }
 
 func (h *Host) SetWeak(v bool) bool {
