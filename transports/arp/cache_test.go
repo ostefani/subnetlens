@@ -6,16 +6,15 @@ import (
 )
 
 func TestCacheRefreshPreservesOverlayWithoutKeepingStaleRows(t *testing.T) {
-	originalReadARPTable := readARPTable
-	defer func() { readARPTable = originalReadARPTable }()
-
-	readARPTable = func() (Table, error) {
-		return Table{
-			"192.168.1.10": "aa:aa:aa:aa:aa:aa",
-		}, nil
+	currentTable := Table{
+		"192.168.1.10": "aa:aa:aa:aa:aa:aa",
+	}
+	cache := &Cache{
+		readTable: func() (Table, error) {
+			return currentTable, nil
+		},
 	}
 
-	cache := &Cache{}
 	cache.Inject("192.168.1.50", "bb-bb-bb-bb-bb-bb")
 
 	refreshed := cache.Refresh()
@@ -26,10 +25,8 @@ func TestCacheRefreshPreservesOverlayWithoutKeepingStaleRows(t *testing.T) {
 		t.Fatalf("expected injected overlay row to persist, got %q", got)
 	}
 
-	readARPTable = func() (Table, error) {
-		return Table{
-			"192.168.1.20": "cc:cc:cc:cc:cc:cc",
-		}, nil
+	currentTable = Table{
+		"192.168.1.20": "cc:cc:cc:cc:cc:cc",
 	}
 
 	refreshed = cache.Refresh()
@@ -45,21 +42,21 @@ func TestCacheRefreshPreservesOverlayWithoutKeepingStaleRows(t *testing.T) {
 }
 
 func TestCacheRefreshKeepsLastGoodTableOnReadError(t *testing.T) {
-	originalReadARPTable := readARPTable
-	defer func() { readARPTable = originalReadARPTable }()
-
-	readARPTable = func() (Table, error) {
-		return Table{
-			"192.168.1.10": "aa:aa:aa:aa:aa:aa",
-		}, nil
+	readErr := error(nil)
+	cache := &Cache{
+		readTable: func() (Table, error) {
+			if readErr != nil {
+				return nil, readErr
+			}
+			return Table{
+				"192.168.1.10": "aa:aa:aa:aa:aa:aa",
+			}, nil
+		},
 	}
 
-	cache := &Cache{}
 	cache.Refresh()
 
-	readARPTable = func() (Table, error) {
-		return nil, errors.New("boom")
-	}
+	readErr = errors.New("boom")
 
 	refreshed := cache.Refresh()
 	if got := refreshed["192.168.1.10"]; got != "aa:aa:aa:aa:aa:aa" {

@@ -14,12 +14,13 @@ import (
 )
 
 type Cache struct {
-	mu       sync.Mutex
-	table    Table
-	overlay  Table
-	lastRead time.Time
-	onError  func(error)
-	lastErr  string
+	mu        sync.Mutex
+	table     Table
+	overlay   Table
+	lastRead  time.Time
+	onError   func(error)
+	lastErr   string
+	readTable func() (Table, error)
 }
 
 type Table map[string]string
@@ -29,7 +30,6 @@ var windowsARPRe = regexp.MustCompile(`(\d+\.\d+\.\d+\.\d+)\s+([0-9a-f-:]{17})`)
 var linuxARPRe = regexp.MustCompile(`^(\d+\.\d+\.\d+\.\d+)\s+\S+\s+\S+\s+([0-9a-f:]+)`)
 
 var identity = func(s string) string { return s }
-var readARPTable = ReadTable
 
 func (c *Cache) Lookup(ip string) (string, bool) {
 	var report func(error)
@@ -37,7 +37,7 @@ func (c *Cache) Lookup(ip string) (string, bool) {
 
 	c.mu.Lock()
 	if c.table == nil || time.Since(c.lastRead) > 500*time.Millisecond {
-		table, err := readARPTable()
+		table, err := c.tableReaderLocked()()
 		c.applyReadResultLocked(table, err)
 		c.lastRead = time.Now()
 		report, reportErr = c.captureErrorReportLocked(err)
@@ -57,7 +57,7 @@ func (c *Cache) Refresh() Table {
 	var reportErr error
 
 	c.mu.Lock()
-	table, err := readARPTable()
+	table, err := c.tableReaderLocked()()
 	c.applyReadResultLocked(table, err)
 	c.lastRead = time.Now()
 	report, reportErr = c.captureErrorReportLocked(err)
@@ -68,6 +68,13 @@ func (c *Cache) Refresh() Table {
 		report(reportErr)
 	}
 	return refreshed
+}
+
+func (c *Cache) tableReaderLocked() func() (Table, error) {
+	if c != nil && c.readTable != nil {
+		return c.readTable
+	}
+	return ReadTable
 }
 
 func (c *Cache) applyReadResultLocked(table Table, err error) {
