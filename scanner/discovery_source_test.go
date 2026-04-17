@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Olha Stefanishyna. MIT License.
+
 package scanner
 
 import (

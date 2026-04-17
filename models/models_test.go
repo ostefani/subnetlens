@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Olha Stefanishyna. MIT License.
+
 package models
 
 import (
@@ -177,6 +179,21 @@ func TestSnapshotIdentityPrefersProducerProvidedIdentity(t *testing.T) {
 	}
 	if snapshot.IdentityAnchorKeys[3] != "site:lab-a" {
 		t.Fatalf("unexpected identity anchor keys: %+v", snapshot.IdentityAnchorKeys)
+	}
+}
+
+func TestSnapshotIdentityKeepsProvidedSourceWhenHostIDIsCustom(t *testing.T) {
+	host := NewHost("192.168.1.20")
+	host.SetMAC("00:1c:b3:00:00:01")
+	host.SetIdentity(HostIdentity{
+		HostID:             "asset:printer-01",
+		IdentityConfidence: IdentityConfidenceHigh,
+		IdentitySource:     IdentitySourceMAC,
+	})
+
+	snapshot := host.Snapshot()
+	if snapshot.IdentitySource != IdentitySourceProvided {
+		t.Fatalf("expected custom host id to keep provided identity source, got %q", snapshot.IdentitySource)
 	}
 }
 

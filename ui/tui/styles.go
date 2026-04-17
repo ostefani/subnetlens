@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Olha Stefanishyna. MIT License.
 package tui
 
 import "github.com/charmbracelet/lipgloss"
@@ -9,13 +10,13 @@ const (
 	colorCyan      = lipgloss.Color("#22c1ca") // title
 	colorCyanLight = lipgloss.Color("#40e6ef") // progress bar fill
 	colorCyanMuted = lipgloss.Color("#59bfc4") // section headers, borders
- 
+
 	// Neutral
 	colorFg     = lipgloss.Color("#92a9ac") // primary text (ice white)
 	colorDim    = lipgloss.Color("#6d7478") // secondary / metadata text
 	colorGutter = lipgloss.Color("#2e2e2e") // progress bar empty track
 	colorBorder = lipgloss.Color("#4a4a4a") // table borders
- 
+
 	// Accents — one role each
 	colorGreen  = lipgloss.Color("#4ec60d") // IP address (alive host)
 	colorPurple = lipgloss.Color("#CC99FF") // vendor
@@ -54,11 +55,11 @@ var (
 				BorderForeground(colorCyanMuted).
 				Padding(0, 2).
 				MarginTop(1).MarginBottom(1)
- 
+
 	localMachineHeaderStyle = lipgloss.NewStyle().
 				Foreground(colorCyanMuted).
 				Bold(true).MarginBottom(1)
- 
+
 	localMachineContentStyle = lipgloss.NewStyle().
 					Foreground(colorFg)
 )
@@ -69,7 +70,7 @@ var (
 	hostStyle   = lipgloss.NewStyle().Bold(true).Foreground(colorGreen)
 	vendorStyle = lipgloss.NewStyle().Foreground(colorPurple)
 	portStyle   = lipgloss.NewStyle().Foreground(colorGold)
- 
+
 	tableBorderStyle = lipgloss.NewStyle().Foreground(colorBorder)
 	tableHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(colorCyanMuted).Padding(0, 1)
 	tableCellStyle   = lipgloss.NewStyle().Padding(0, 1)

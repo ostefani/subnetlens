@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Olha Stefanishyna. MIT License.
+
 package models
 
 import (
@@ -146,12 +148,11 @@ type HostSnapshot struct {
 }
 
 func NewHost(ip string) *Host {
-	host := &Host{
+	return &Host{
 		ip:       ip,
 		Hostname: ip,
+		identity: deriveIdentityMetadata(ip, ip, "", false),
 	}
-	host.rebuildIdentityLocked()
-	return host
 }
 
 func (h *Host) IP() string {
@@ -200,7 +201,6 @@ func (h *Host) Snapshot() HostSnapshot {
 	if len(h.identity.IdentityAnchorKeys) > 0 {
 		snapshot.IdentityAnchorKeys = append([]string(nil), h.identity.IdentityAnchorKeys...)
 	}
-	snapshot.applyIdentityMetadata()
 
 	return snapshot
 }
@@ -326,14 +326,17 @@ func (h *Host) rebuildIdentityLocked() {
 
 	if override.HostID != "" {
 		identity.HostID = override.HostID
-		identity.IdentitySource = IdentitySourceProvided
 		if override.IdentityConfidence != "" {
 			identity.IdentityConfidence = override.IdentityConfidence
 		} else {
 			identity.IdentityConfidence = IdentityConfidenceLow
 		}
+		// A custom HostID came from a producer rather than OSS derivation.
+		// Keep that signal stable; more granular provenance can be added
+		// separately later without weakening the provided/not-provided split.
+		identity.IdentitySource = IdentitySourceProvided
 	}
-	if override.IdentitySource != "" {
+	if override.IdentitySource != "" && override.HostID == "" {
 		identity.IdentitySource = override.IdentitySource
 	}
 	if override.IdentityConfidence != "" && override.HostID == "" {

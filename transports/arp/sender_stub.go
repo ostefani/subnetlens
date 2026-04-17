@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Olha Stefanishyna. MIT License.
 //go:build !linux && !darwin && !windows
 
 package arp
