@@ -261,13 +261,14 @@ func probeHostSmart(
 ) []contracts.HostObservation {
 	observations := make([]contracts.HostObservation, 0, 3)
 	if arpCache != nil {
-		if mac, ok := arpCache.Lookup(ip); ok {
+		if mac, observedAt, ok := arpCache.LookupRecent(ip); ok {
 			observations = append(observations, contracts.HostObservation{
-				IP:     ip,
-				MAC:    mac,
-				Alive:  true,
-				Weak:   true,
-				Source: models.HostSourceARP,
+				IP:         ip,
+				MAC:        mac,
+				Alive:      true,
+				Weak:       true,
+				Source:     models.HostSourceARP,
+				ObservedAt: observedAt,
 			})
 		}
 	}
@@ -280,11 +281,13 @@ func probeHostSmart(
 
 	if res.name != "" && res.name != ip {
 		observations = append(observations, contracts.HostObservation{
-			IP:     ip,
-			Name:   res.name,
-			Alive:  res.provesLiveness,
-			Weak:   !res.provesLiveness,
-			Source: res.source,
+			IP:         ip,
+			Name:       res.name,
+			Alive:      res.provesLiveness,
+			Weak:       !res.provesLiveness,
+			Source:     res.source,
+			ObservedAt: res.observedAt,
+			ExpiresAt:  res.expiresAt,
 		})
 	}
 

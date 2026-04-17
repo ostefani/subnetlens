@@ -460,6 +460,47 @@ func TestMergeLivenessDoesNotLetWeakObservationDowngradeStrongHost(t *testing.T)
 	}
 }
 
+func TestObserveLivenessExpiresWeakEvidence(t *testing.T) {
+	host := NewHost("192.168.1.21")
+
+	if !host.ObserveLiveness(true, true, HostSourceARP, time.Now(), time.Now().Add(25*time.Millisecond)) {
+		t.Fatal("expected weak observation to update host")
+	}
+	if !host.IsAlive() || !host.IsWeak() {
+		t.Fatal("expected host to be alive and weak while evidence is fresh")
+	}
+
+	time.Sleep(40 * time.Millisecond)
+
+	snapshot := host.Snapshot()
+	if snapshot.Alive {
+		t.Fatal("expected host to become offline after weak evidence expires")
+	}
+	if snapshot.Weak {
+		t.Fatal("expected weak flag to clear after evidence expires")
+	}
+}
+
+func TestSetAliveClearsObservedLivenessState(t *testing.T) {
+	host := NewHost("192.168.1.22")
+
+	if !host.ObserveLiveness(true, true, HostSourceARP, time.Now(), time.Now().Add(20*time.Millisecond)) {
+		t.Fatal("expected observed liveness to update host")
+	}
+	if !host.SetAlive(true) {
+		t.Fatal("expected manual alive setter to take ownership")
+	}
+
+	time.Sleep(35 * time.Millisecond)
+
+	if !host.IsAlive() {
+		t.Fatal("expected manual alive state to outlive expired observed evidence")
+	}
+	if host.IsWeak() {
+		t.Fatal("expected manual alive setter to clear prior weak observed state")
+	}
+}
+
 func TestAddPortUpsertsExistingPort(t *testing.T) {
 	host := NewHost("192.168.1.20")
 

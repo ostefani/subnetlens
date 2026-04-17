@@ -82,7 +82,7 @@ func mergeObservation(h *models.Host, u contracts.HostObservation) bool {
 	if h.SetIdentity(u.Identity) {
 		changed = true
 	}
-	if h.MergeLiveness(u.Alive, u.Weak, u.Source) {
+	if h.ObserveLiveness(u.Alive, u.Weak, u.Source, u.ObservedAt, u.ExpiresAt) {
 		changed = true
 	}
 	if h.SetLatencyIfZero(u.Latency) {

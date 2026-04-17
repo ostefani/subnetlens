@@ -120,8 +120,16 @@ type Host struct {
 	alive bool
 	weak  bool
 
+	livenessBySource map[HostSource]livenessObservation
+
 	identity         HostIdentity
 	identityOverride HostIdentity
+}
+
+type livenessObservation struct {
+	alive     bool
+	weak      bool
+	expiresAt time.Time
 }
 
 type HostSnapshot struct {
@@ -174,6 +182,8 @@ func (h *Host) Snapshot() HostSnapshot {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
+	alive, weak := h.currentLivenessLocked(time.Now())
+
 	snapshot := HostSnapshot{
 		IP:                 h.ip,
 		Hostname:           h.Hostname,
@@ -186,8 +196,8 @@ func (h *Host) Snapshot() HostSnapshot {
 		SeenAt:             h.SeenAt,
 		UpdatedAt:          h.UpdatedAt,
 		Source:             h.Source,
-		Alive:              h.alive,
-		Weak:               h.weak,
+		Alive:              alive,
+		Weak:               weak,
 		HostID:             h.identity.HostID,
 		IdentityConfidence: h.identity.IdentityConfidence,
 		IdentitySource:     h.identity.IdentitySource,
@@ -399,6 +409,10 @@ func (h *Host) markSeenLocked(source HostSource) bool {
 // MergeLiveness applies an observation's liveness, weakness, and source under a
 // single lock so late weak signals cannot race with stronger confirmations.
 func (h *Host) MergeLiveness(alive, weak bool, source HostSource) bool {
+	return h.ObserveLiveness(alive, weak, source, time.Time{}, time.Time{})
+}
+
+func (h *Host) ObserveLiveness(alive, weak bool, source HostSource, observedAt, expiresAt time.Time) bool {
 	if h == nil {
 		return false
 	}
@@ -406,27 +420,27 @@ func (h *Host) MergeLiveness(alive, weak bool, source HostSource) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	changed := false
-	if alive && !h.alive {
-		h.alive = true
-		changed = true
+	if observedAt.IsZero() {
+		observedAt = time.Now()
 	}
 
+	changed := false
+	h.pruneExpiredLivenessLocked(observedAt)
 	if alive {
-		if !weak {
-			if h.weak {
-				h.weak = false
-				changed = true
-			}
-		} else if h.Source == "" || h.weak {
-			if !h.weak {
-				h.weak = true
-				changed = true
-			}
+		if h.livenessBySource == nil {
+			h.livenessBySource = make(map[HostSource]livenessObservation)
+		}
+		h.livenessBySource[source] = livenessObservation{
+			alive:     true,
+			weak:      weak,
+			expiresAt: expiresAt,
 		}
 	}
 
 	if source != "" && h.markSeenLocked(source) {
+		changed = true
+	}
+	if h.reconcileLivenessLocked(observedAt) {
 		changed = true
 	}
 
@@ -441,7 +455,8 @@ func (h *Host) IsAlive() bool {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	return h.alive
+	alive, _ := h.currentLivenessLocked(time.Now())
+	return alive
 }
 
 func (h *Host) SetAlive(v bool) bool {
@@ -452,10 +467,15 @@ func (h *Host) SetAlive(v bool) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if h.alive == v {
-		return false
+	changed := len(h.livenessBySource) > 0
+	h.clearObservedLivenessLocked()
+	if h.alive == v && (!v || !h.weak) {
+		return changed
 	}
 	h.alive = v
+	if v {
+		h.weak = false
+	}
 	return true
 }
 
@@ -467,7 +487,42 @@ func (h *Host) IsWeak() bool {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	return h.weak
+	_, weak := h.currentLivenessLocked(time.Now())
+	return weak
+}
+
+func (h *Host) currentLivenessLocked(now time.Time) (bool, bool) {
+	if len(h.livenessBySource) == 0 {
+		return h.alive, h.weak
+	}
+
+	alive := false
+	weak := false
+	for _, observation := range h.livenessBySource {
+		if !observation.expiresAt.IsZero() && now.After(observation.expiresAt) {
+			continue
+		}
+		if !observation.alive {
+			continue
+		}
+		if !observation.weak {
+			alive = true
+			weak = false
+			break
+		}
+		alive = true
+		weak = true
+	}
+
+	return alive, weak
+}
+
+func (h *Host) reconcileLivenessLocked(now time.Time) bool {
+	alive, weak := h.currentLivenessLocked(now)
+	changed := h.alive != alive || h.weak != weak
+	h.alive = alive
+	h.weak = weak
+	return changed
 }
 
 func (h *Host) SetWeak(v bool) bool {
@@ -478,11 +533,37 @@ func (h *Host) SetWeak(v bool) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
+	changed := len(h.livenessBySource) > 0
+	h.clearObservedLivenessLocked()
 	if h.weak == v {
-		return false
+		return changed
 	}
 	h.weak = v
 	return true
+}
+
+func (h *Host) clearObservedLivenessLocked() {
+	if len(h.livenessBySource) == 0 {
+		h.livenessBySource = nil
+		return
+	}
+	clear(h.livenessBySource)
+	h.livenessBySource = nil
+}
+
+func (h *Host) pruneExpiredLivenessLocked(now time.Time) {
+	if len(h.livenessBySource) == 0 {
+		return
+	}
+	for source, observation := range h.livenessBySource {
+		if observation.expiresAt.IsZero() || !now.After(observation.expiresAt) {
+			continue
+		}
+		delete(h.livenessBySource, source)
+	}
+	if len(h.livenessBySource) == 0 {
+		h.livenessBySource = nil
+	}
 }
 
 func (h *Host) SetMAC(mac string) bool {
@@ -745,13 +826,15 @@ func (h *Host) setProtocolPorts(protocol string, ports []Port, markAliveOnOpen b
 	sortPorts(merged)
 
 	if portsEqual(h.Ports, merged) {
-		if !(markAliveOnOpen && hasOpen && (!h.alive || h.weak)) {
+		currentAlive, currentWeak := h.currentLivenessLocked(time.Now())
+		if !(markAliveOnOpen && hasOpen && (!currentAlive || currentWeak || len(h.livenessBySource) > 0)) {
 			return false
 		}
 	}
 
 	h.Ports = merged
 	if markAliveOnOpen && hasOpen {
+		h.clearObservedLivenessLocked()
 		h.alive = true
 		h.weak = false
 	}

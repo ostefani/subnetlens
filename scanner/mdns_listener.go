@@ -4,6 +4,7 @@ package scanner
 
 import (
 	"context"
+	"time"
 
 	"github.com/ostefani/subnetlens/models"
 	"github.com/ostefani/subnetlens/scanner/contracts"
@@ -51,10 +52,11 @@ func (s *passiveMDNSStore) StoreName(ip, name string, source models.HostSource) 
 	}
 
 	sendHostObservation(s.ctx, s.updates, contracts.HostObservation{
-		IP:     ip,
-		Name:   name,
-		Alive:  source == models.HostSourceMDNS,
-		Source: source,
+		IP:         ip,
+		Name:       name,
+		Alive:      source == models.HostSourceMDNS,
+		Source:     source,
+		ObservedAt: time.Now(),
 	})
 }
 
