@@ -133,3 +133,46 @@ func TestHostRegistrySkipsDuplicateUpdates(t *testing.T) {
 		t.Fatalf("unexpected duplicate update event: %+v", extra)
 	}
 }
+
+func TestHostRegistryWeakSignalDoesNotDowngradeStrongHost(t *testing.T) {
+	host := models.NewHost("192.168.1.30")
+
+	if !mergeObservation(host, contracts.HostObservation{
+		IP:     "192.168.1.30",
+		Alive:  true,
+		Weak:   true,
+		Source: models.HostSourceARP,
+	}) {
+		t.Fatal("expected initial weak observation to change host")
+	}
+
+	snapshot := host.Snapshot()
+	if !snapshot.Weak {
+		t.Fatal("expected host to start weak from ARP-only evidence")
+	}
+
+	if !mergeObservation(host, contracts.HostObservation{
+		IP:      "192.168.1.30",
+		Alive:   true,
+		Latency: 5 * time.Millisecond,
+		Source:  models.HostSourceICMP,
+	}) {
+		t.Fatal("expected strong observation to change host")
+	}
+
+	snapshot = host.Snapshot()
+	if snapshot.Weak {
+		t.Fatal("expected strong observation to clear weak state")
+	}
+
+	mergeObservation(host, contracts.HostObservation{
+		IP:     "192.168.1.30",
+		Alive:  true,
+		Weak:   true,
+		Source: models.HostSourceARP,
+	})
+
+	if host.Snapshot().Weak {
+		t.Fatal("expected later weak observation not to downgrade a strong host")
+	}
+}

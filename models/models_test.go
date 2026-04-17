@@ -251,6 +251,29 @@ func TestSetProtocolPortsReplacesOnlyMatchingProtocol(t *testing.T) {
 	}
 }
 
+func TestSetProtocolPortsAndMarkAlivePromotesHostOnOpenPort(t *testing.T) {
+	host := NewHost("192.168.1.20")
+	host.SetWeak(true)
+
+	if !host.SetProtocolPortsAndMarkAlive("tcp", []Port{{
+		Number: 443,
+		State:  PortOpen,
+	}}) {
+		t.Fatal("expected protocol update to change host")
+	}
+
+	snapshot := host.Snapshot()
+	if !snapshot.Alive {
+		t.Fatal("expected open protocol port to mark host alive")
+	}
+	if snapshot.Weak {
+		t.Fatal("expected open protocol port to clear weak state")
+	}
+	if len(snapshot.OpenPorts()) != 1 || snapshot.OpenPorts()[0].Number != 443 {
+		t.Fatalf("expected open TCP port to be stored, got %+v", snapshot.OpenPorts())
+	}
+}
+
 func TestAddPortUpsertsExistingPort(t *testing.T) {
 	host := NewHost("192.168.1.20")
 

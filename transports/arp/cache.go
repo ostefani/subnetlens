@@ -29,6 +29,7 @@ var windowsARPRe = regexp.MustCompile(`(\d+\.\d+\.\d+\.\d+)\s+([0-9a-f-:]{17})`)
 var linuxARPRe = regexp.MustCompile(`^(\d+\.\d+\.\d+\.\d+)\s+\S+\s+\S+\s+([0-9a-f:]+)`)
 
 var identity = func(s string) string { return s }
+var readARPTable = ReadTable
 
 func (c *Cache) Lookup(ip string) (string, bool) {
 	var report func(error)
@@ -36,9 +37,8 @@ func (c *Cache) Lookup(ip string) (string, bool) {
 
 	c.mu.Lock()
 	if c.table == nil || time.Since(c.lastRead) > 500*time.Millisecond {
-		table, err := ReadTable()
-		c.table = table
-		c.mergeOverlayLocked()
+		table, err := readARPTable()
+		c.applyReadResultLocked(table, err)
 		c.lastRead = time.Now()
 		report, reportErr = c.captureErrorReportLocked(err)
 	}
@@ -57,9 +57,8 @@ func (c *Cache) Refresh() Table {
 	var reportErr error
 
 	c.mu.Lock()
-	table, err := ReadTable()
-	c.table = table
-	c.mergeOverlayLocked()
+	table, err := readARPTable()
+	c.applyReadResultLocked(table, err)
 	c.lastRead = time.Now()
 	report, reportErr = c.captureErrorReportLocked(err)
 	refreshed := c.table
@@ -69,6 +68,17 @@ func (c *Cache) Refresh() Table {
 		report(reportErr)
 	}
 	return refreshed
+}
+
+func (c *Cache) applyReadResultLocked(table Table, err error) {
+	if err == nil || c.table == nil {
+		next := make(Table, len(table)+len(c.overlay))
+		for k, v := range table {
+			next[k] = v
+		}
+		c.table = next
+	}
+	c.mergeOverlayLocked()
 }
 
 func (c *Cache) Inject(ip, mac string) {

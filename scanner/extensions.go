@@ -34,6 +34,15 @@ func WithOnHost(onHost func(*models.Host)) Option {
 	}
 }
 
+func WithARPCache(cache *ARPCache) Option {
+	return func(e *Engine) {
+		if e == nil {
+			return
+		}
+		e.arpCache = cache
+	}
+}
+
 func WithOnProgress(onProgress func(done, total int)) Option {
 	return func(e *Engine) {
 		if e == nil {

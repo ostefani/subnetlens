@@ -231,6 +231,17 @@ func (h *Host) IsWeak() bool {
 	return h.weak
 }
 
+func (h *Host) SourceValue() HostSource {
+	if h == nil {
+		return ""
+	}
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	return h.Source
+}
+
 func (h *Host) SetWeak(v bool) bool {
 	if h == nil {
 		return false
@@ -462,13 +473,28 @@ func (h *Host) SetOpenPorts(ports []Port) bool {
 // SetProtocolPorts replaces the host's ports for one protocol while preserving
 // any ports discovered for other protocols.
 func (h *Host) SetProtocolPorts(protocol string, ports []Port) bool {
+	return h.setProtocolPorts(protocol, ports, false)
+}
+
+// SetProtocolPortsAndMarkAlive replaces the host's ports for one protocol while
+// preserving ports discovered for other protocols. When any replacement port is
+// open, the host is atomically promoted to alive and strong.
+func (h *Host) SetProtocolPortsAndMarkAlive(protocol string, ports []Port) bool {
+	return h.setProtocolPorts(protocol, ports, true)
+}
+
+func (h *Host) setProtocolPorts(protocol string, ports []Port, markAliveOnOpen bool) bool {
 	if h == nil || protocol == "" {
 		return false
 	}
 
 	replacement := append([]Port(nil), ports...)
+	hasOpen := false
 	for i := range replacement {
 		replacement[i].Protocol = protocol
+		if replacement[i].State == PortOpen {
+			hasOpen = true
+		}
 	}
 	sortPorts(replacement)
 
@@ -486,10 +512,16 @@ func (h *Host) SetProtocolPorts(protocol string, ports []Port) bool {
 	sortPorts(merged)
 
 	if portsEqual(h.Ports, merged) {
-		return false
+		if !(markAliveOnOpen && hasOpen && (!h.alive || h.weak)) {
+			return false
+		}
 	}
 
 	h.Ports = merged
+	if markAliveOnOpen && hasOpen {
+		h.alive = true
+		h.weak = false
+	}
 	return true
 }
 

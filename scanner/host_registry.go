@@ -70,30 +70,17 @@ func mergeObservation(h *models.Host, u contracts.HostObservation) bool {
 	if h == nil {
 		return false
 	}
-
 	changed := false
-
 	if h.SetMACIfEmpty(u.MAC) {
 		changed = true
 	}
 	if h.SetHostnameIfEmptyOrIP(u.Name) {
 		changed = true
 	}
-	if h.SetLatencyIfZero(u.Latency) {
-		changed = true
-	}
-
-	if !u.Weak && !u.Alive && h.Snapshot().Alive {
-		if h.SetWeak(true) {
-			changed = true
-		}
-	}
-
-	if h.MarkSeen(u.Source) {
-		changed = true
-	}
-
 	if u.Alive {
+		currentSource := h.SourceValue()
+		currentWeak := h.IsWeak()
+
 		if h.SetAlive(true) {
 			changed = true
 		}
@@ -102,17 +89,18 @@ func mergeObservation(h *models.Host, u contracts.HostObservation) bool {
 			if h.SetWeak(false) {
 				changed = true
 			}
-		} else {
-			if h.IsWeak() || h.Source == models.HostSourceARP {
-				if len(h.Snapshot().Ports) == 0 {
-					if h.SetWeak(true) {
-						changed = true
-					}
-				}
+		} else if currentSource == "" || currentWeak {
+			if h.SetWeak(true) {
+				changed = true
 			}
 		}
 	}
-
+	if h.SetLatencyIfZero(u.Latency) {
+		changed = true
+	}
+	if h.MarkSeen(u.Source) {
+		changed = true
+	}
 	return changed
 }
 
