@@ -145,7 +145,7 @@ func (e *Engine) Run(ctx context.Context) *models.ScanResult {
 			continue
 		}
 
-		ip := event.Host.Snapshot().IP
+		ip := event.Host.IP()
 
 		switch event.Type {
 		case HostDiscovered:

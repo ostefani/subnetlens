@@ -174,6 +174,20 @@ func (h *Host) IP() string {
 	return h.ip
 }
 
+// MACAndVendor returns the MAC and vendor in one locked read without copying
+// port or identity slices like Snapshot does. Prefer it when only link-layer
+// enrichment state is needed.
+func (h *Host) MACAndVendor() (mac, vendor string) {
+	if h == nil {
+		return "", ""
+	}
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	return h.MAC, h.Vendor
+}
+
 func (h *Host) Snapshot() HostSnapshot {
 	if h == nil {
 		return HostSnapshot{}

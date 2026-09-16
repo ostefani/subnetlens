@@ -572,3 +572,18 @@ func TestSetPortsDerivesOpenPorts(t *testing.T) {
 		t.Fatalf("expected DNS to remain in derived open ports, got %+v", openPorts[0])
 	}
 }
+
+func TestMACAndVendorLightRead(t *testing.T) {
+	var nilHost *Host
+	if mac, vendor := nilHost.MACAndVendor(); mac != "" || vendor != "" {
+		t.Fatalf("expected zero values for nil host, got %q, %q", mac, vendor)
+	}
+
+	host := NewHost("192.168.1.20")
+	host.SetMAC("00:1b:2f:33:44:55")
+	host.SetVendor("Netgear")
+
+	if mac, vendor := host.MACAndVendor(); mac != "00:1b:2f:33:44:55" || vendor != "Netgear" {
+		t.Fatalf("expected MAC and vendor without full snapshot, got %q, %q", mac, vendor)
+	}
+}

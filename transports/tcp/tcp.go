@@ -408,18 +408,19 @@ func fingerprintTimeout(timeout time.Duration) time.Duration {
 	return timeout
 }
 
+var knownServices = map[int]string{
+	21: "FTP", 22: "SSH", 23: "Telnet",
+	25: "SMTP", 53: "DNS", 80: "HTTP",
+	110: "POP3", 139: "NetBIOS", 143: "IMAP",
+	443: "HTTPS", 445: "SMB", 587: "SMTP/TLS",
+	993: "IMAPS", 995: "POP3S", 3306: "MySQL",
+	3389: "RDP", 5432: "PostgreSQL", 5900: "VNC",
+	6379: "Redis", 8080: "HTTP-Alt", 8443: "HTTPS-Alt",
+	8888: "Jupyter", 9200: "Elasticsearch",
+}
+
 func knownService(port int) string {
-	services := map[int]string{
-		21: "FTP", 22: "SSH", 23: "Telnet",
-		25: "SMTP", 53: "DNS", 80: "HTTP",
-		110: "POP3", 139: "NetBIOS", 143: "IMAP",
-		443: "HTTPS", 445: "SMB", 587: "SMTP/TLS",
-		993: "IMAPS", 995: "POP3S", 3306: "MySQL",
-		3389: "RDP", 5432: "PostgreSQL", 5900: "VNC",
-		6379: "Redis", 8080: "HTTP-Alt", 8443: "HTTPS-Alt",
-		8888: "Jupyter", 9200: "Elasticsearch",
-	}
-	if s, ok := services[port]; ok {
+	if s, ok := knownServices[port]; ok {
 		return s
 	}
 	return "unknown"

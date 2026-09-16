@@ -66,3 +66,15 @@ func TestScanHostMarksHostAliveWhenPortIsOpen(t *testing.T) {
 		t.Fatalf("expected scanned open port to be recorded, got %+v", snapshot.OpenPorts())
 	}
 }
+
+func TestKnownServiceTable(t *testing.T) {
+	cases := map[int]string{22: "SSH", 443: "HTTPS", 5432: "PostgreSQL"}
+	for port, want := range cases {
+		if got := knownService(port); got != want {
+			t.Errorf("knownService(%d) = %q, want %q", port, got, want)
+		}
+	}
+	if got := knownService(9999); got != "unknown" {
+		t.Errorf("knownService(9999) = %q, want %q", got, "unknown")
+	}
+}
