@@ -14,13 +14,13 @@ func EnrichHost(h *models.Host, arp *ARPCache) {
 	}
 
 	_ = arp
-	snapshot := h.Snapshot()
+	mac, vendor := h.MACAndVendor()
 
-	if snapshot.MAC != "" {
-		randomizedMAC := isMACRandomized(snapshot.MAC)
+	if mac != "" {
+		randomizedMAC := isMACRandomized(mac)
 		h.SetRandomizedMAC(randomizedMAC)
-		if !randomizedMAC && snapshot.Vendor == "" {
-			h.SetVendorIfEmpty(VendorFromMAC(snapshot.MAC))
+		if !randomizedMAC && vendor == "" {
+			h.SetVendorIfEmpty(VendorFromMAC(mac))
 		}
 	}
 }

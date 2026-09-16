@@ -1,12 +1,15 @@
 # ✧ SubnetLens ✧
 
 ![Go Version](https://img.shields.io/badge/go-1.25-blue)
+![Bubble Tea](https://img.shields.io/badge/UI-Bubble%20Tea-ff69b4)
+![Cobra](https://img.shields.io/badge/CLI-Cobra-8A2BE2)
+![Visitors](https://visitor-badge.laobi.icu/badge?page_id=ostefani.subnetlense)
+
 ![CLI](https://img.shields.io/badge/type-CLI-informational)
 ![Interface](https://img.shields.io/badge/type-TUI-informational)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-![Bubble Tea](https://img.shields.io/badge/UI-Bubble%20Tea-ff69b4)
-![Cobra](https://img.shields.io/badge/CLI-Cobra-8A2BE2)
+_**Key Rotation Note:** New signature keys effective Sep 16, 2026. Legacy keys are no longer active on this profile. Commits signed before that date may appear Unverified as a result of the rotation._
 
 A fast, concurrent network scanner with a TUI and plain-text CLI, built in Go.
 

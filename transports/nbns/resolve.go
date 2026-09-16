@@ -7,6 +7,8 @@ import (
 	"net"
 	"strings"
 	"time"
+
+	"github.com/ostefani/subnetlens/internal/netutil"
 )
 
 type socketLimiter interface {
@@ -15,7 +17,7 @@ type socketLimiter interface {
 }
 
 func ResolveName(ctx context.Context, ip string, limiter socketLimiter) string {
-	timeout := cappedTimeout(ctx, 300*time.Millisecond)
+	timeout := netutil.CappedTimeout(ctx, 300*time.Millisecond)
 	if limiter != nil {
 		if err := limiter.Acquire(ctx); err != nil {
 			return ""
@@ -142,18 +144,4 @@ func parseResponse(buf []byte) string {
 	}
 
 	return ""
-}
-
-func cappedTimeout(ctx context.Context, max time.Duration) time.Duration {
-	dl, ok := ctx.Deadline()
-	if !ok {
-		return max
-	}
-	if rem := time.Until(dl); rem < max {
-		if rem <= 0 {
-			return time.Millisecond
-		}
-		return rem
-	}
-	return max
 }
