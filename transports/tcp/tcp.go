@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ostefani/subnetlens/internal/netutil"
 	"github.com/ostefani/subnetlens/internal/textutil"
 	"github.com/ostefani/subnetlens/models"
 	"github.com/ostefani/subnetlens/scanner/contracts"
@@ -190,7 +191,7 @@ func probePort(ctx context.Context, ip string, portNum int, opts models.ScanOpti
 
 	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
-		if isTimeout(err) {
+		if netutil.IsTimeout(err) {
 			port.State = models.PortFiltered
 		}
 		return port
@@ -222,14 +223,6 @@ func isRemoteTCPResponse(err error) bool {
 	}
 
 	return errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ECONNRESET)
-}
-
-func isTimeout(err error) bool {
-	if err == nil {
-		return false
-	}
-	netErr, ok := err.(net.Error)
-	return ok && netErr.Timeout()
 }
 
 var tlsPorts = map[int]bool{
@@ -301,14 +294,14 @@ func collectPortEvidence(
 
 func grabBanner(conn net.Conn, portNum int) string {
 	if probe, ok := clientProbes[portNum]; ok {
-		conn.SetWriteDeadline(deadlineAfter(300)) //nolint:errcheck
+		conn.SetWriteDeadline(netutil.DeadlineAfter(300)) //nolint:errcheck
 		if _, err := conn.Write(probe); err != nil {
 			return ""
 		}
 	}
 
 	buf := make([]byte, 512)
-	conn.SetReadDeadline(deadlineAfter(500)) //nolint:errcheck
+	conn.SetReadDeadline(netutil.DeadlineAfter(500)) //nolint:errcheck
 
 	n, _ := conn.Read(buf)
 	if n == 0 {
@@ -413,10 +406,6 @@ func fingerprintTimeout(timeout time.Duration) time.Duration {
 		return 500 * time.Millisecond
 	}
 	return timeout
-}
-
-func deadlineAfter(ms int) time.Time {
-	return time.Now().Add(time.Duration(ms) * time.Millisecond)
 }
 
 func knownService(port int) string {

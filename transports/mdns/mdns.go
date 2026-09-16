@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ostefani/subnetlens/internal/netutil"
 	"github.com/ostefani/subnetlens/internal/textutil"
 	"github.com/ostefani/subnetlens/models"
 	"golang.org/x/net/ipv4"
@@ -105,7 +106,7 @@ func ResolveName(ctx context.Context, ip string, limiter socketLimiter) string {
 	arpa := fmt.Sprintf("%s.%s.%s.%s.in-addr.arpa", parts[3], parts[2], parts[1], parts[0])
 	query := buildPTRQuery(arpa)
 
-	timeout := cappedTimeout(ctx, 500*time.Millisecond)
+	timeout := netutil.CappedTimeout(ctx, 500*time.Millisecond)
 	if limiter != nil {
 		if err := limiter.Acquire(ctx); err != nil {
 			return ""
@@ -384,18 +385,4 @@ func normalizeName(name string) string {
 	name = strings.TrimSuffix(name, ".local")
 	name = strings.TrimSuffix(name, ".")
 	return textutil.SanitizeInline(name)
-}
-
-func cappedTimeout(ctx context.Context, max time.Duration) time.Duration {
-	dl, ok := ctx.Deadline()
-	if !ok {
-		return max
-	}
-	if rem := time.Until(dl); rem < max {
-		if rem <= 0 {
-			return time.Millisecond
-		}
-		return rem
-	}
-	return max
 }
