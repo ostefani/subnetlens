@@ -24,6 +24,28 @@ var (
 	flagAllAlive             bool
 )
 
+var (
+	buildVersion = "dev"
+	buildCommit  = "none"
+	buildDate    = "unknown"
+)
+
+// SetVersionInfo records build-time metadata so --version reports the
+// release tag injected via ldflags. Empty values keep the defaults.
+// Note: rootCmd.Version is always fully recomputed regardless of empty fields.
+func SetVersionInfo(version, commit, date string) {
+	if version != "" {
+		buildVersion = version
+	}
+	if commit != "" {
+		buildCommit = commit
+	}
+	if date != "" {
+		buildDate = date
+	}
+	rootCmd.Version = fmt.Sprintf("%s (commit %s, built %s)", buildVersion, buildCommit, buildDate)
+}
+
 var rootCmd = &cobra.Command{
 	Use:   "subnetlens",
 	Short: "subnetlens — fast local network port scanner & visualizer",
