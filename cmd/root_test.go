@@ -8,6 +8,23 @@ import (
 	"testing"
 )
 
+func TestRunScanRefusesLargeTargetWithoutFlag(t *testing.T) {
+	if flagAllowLargeScan {
+		t.Skip("flagAllowLargeScan is set; refusal path not exercised")
+	}
+
+	err := runScan(nil, []string{"10.0.0.0/16"})
+	if err == nil {
+		t.Fatal("expected large scan without --allow-large-scan to fail")
+	}
+	if !strings.Contains(err.Error(), "--allow-large-scan") {
+		t.Fatalf("expected error to name the opt-in flag, got %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "65534") {
+		t.Fatalf("expected error to state the address count, got %q", err.Error())
+	}
+}
+
 func TestVersionFlagReportsBuildMetadata(t *testing.T) {
 	SetVersionInfo("v9.9.9", "deadbee", "2026-09-16")
 

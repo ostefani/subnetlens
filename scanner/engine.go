@@ -64,14 +64,37 @@ func (e *Engine) Run(ctx context.Context) *models.ScanResult {
 	defer cancel()
 	deps := e.deps
 
-	socketLimiter := newSocketLimiter(e.SocketBudget)
-	discoverySem := make(chan struct{}, e.Opts.DiscoveryConcurrencyLimit())
-
 	result := &models.ScanResult{
 		Subnet:    e.Opts.Subnet,
 		StartedAt: time.Now(),
 	}
 	issues := newIssueRecorder(result, e.onIssue)
+
+	// Expand and check consent before acquiring any OS resources (raw ICMP
+	// socket, mDNS listener): neither depends on them, so an invalid target
+	// and an unconsented large scan both return an empty result without
+	// opening sockets, binding listeners, or leaving goroutines undrained.
+	targets, expandErr := deps.targetExpander.Expand(e.Opts.Subnet)
+	if expandErr != nil {
+		issues.Report(warningIssue("discovery", "target expansion failed: %v", expandErr))
+		debugLog("engine", "expandTargets error: %v", expandErr)
+		result.FinishedAt = time.Now()
+		return result
+	}
+	if total := uint64(targets.total); contracts.RequiresLargeScanConsent(total, e.Opts) {
+		confirmation := &LargeScanConfirmationError{Target: e.Opts.Subnet, Total: total, Threshold: contracts.LargeScanThreshold}
+		issues.Report(warningIssue("discovery", "%s", confirmation.Error()))
+		debugLog("engine", "large scan without consent: %d targets", targets.total)
+		result.FinishedAt = time.Now()
+		return result
+	}
+	debugLog("engine", "expandTargets")
+	if warning := LargeScanWarning(e.Opts.Subnet, uint64(targets.total)); warning != "" {
+		issues.Report(warningIssue("discovery", "%s", warning))
+	}
+
+	socketLimiter := newSocketLimiter(e.SocketBudget)
+	discoverySem := make(chan struct{}, e.Opts.DiscoveryConcurrencyLimit())
 
 	if err := deps.ouiLoader.LoadOUICSV(); err != nil {
 		issues.Report(warningIssue("oui", "OUI vendor data unavailable: %v", err))
@@ -101,16 +124,13 @@ func (e *Engine) Run(ctx context.Context) *models.ScanResult {
 		issues.Report(warningIssue("arp", "ARP table unavailable: %v", err))
 	})
 
-	deps.activeARPSweeper.Start(runCtx, e.Opts.Subnet, arpCache, issues)
-
-	targets, err := deps.targetExpander.Expand(e.Opts.Subnet)
-	if err != nil {
-		issues.Report(warningIssue("discovery", "target expansion failed: %v", err))
-		debugLog("engine", "expandTargets error: %v", err)
-	} else {
-		debugLog("engine", "expandTargets")
-		deps.subnetPreheater.Preheat(runCtx, targets.seq, targets.total, icmpScanner)
-	}
+	// The sweep and preheater reuse this run's single expanded sequence;
+	// nothing downstream re-expands the target. Memory scales with
+	// discovered hosts, not candidate addresses: channels are fixed-size
+	// and the registry/result maps only gain entries for hosts with
+	// real evidence.
+	deps.activeARPSweeper.Start(runCtx, e.Opts.Subnet, targets.seq, arpCache, issues)
+	deps.subnetPreheater.Preheat(runCtx, targets.seq, targets.total, icmpScanner)
 
 	discoveryRuntime := newDiscoveryRuntime(targets, socketLimiter, discoverySem, issues)
 	observationCh := e.runDiscoveryModules(runCtx, discoveryRuntime, deps, cache, icmpScanner, arpCache)

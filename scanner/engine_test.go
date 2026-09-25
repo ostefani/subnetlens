@@ -137,7 +137,7 @@ type stubActiveARPSweeper struct {
 	lastTarget string
 }
 
-func (m *stubActiveARPSweeper) Start(_ context.Context, target string, _ *ARPCache, _ issueReporter) {
+func (m *stubActiveARPSweeper) Start(_ context.Context, target string, _ iter.Seq[string], _ *ARPCache, _ issueReporter) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.calls++
@@ -478,14 +478,16 @@ func TestEngineReportsNonFatalIssues(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	if len(got) != 4 {
-		t.Fatalf("expected 4 non-fatal issues, got %d: %+v", len(got), got)
+	// An invalid target fails fast: only the expansion issue is reported and
+	// no loader, socket, listener, sweep, or discovery runs.
+	if len(got) != 1 {
+		t.Fatalf("expected 1 non-fatal issue, got %d: %+v", len(got), got)
 	}
 	if len(result.Issues) != len(got) {
 		t.Fatalf("expected result issues to mirror callback count, got %d vs %d", len(result.Issues), len(got))
 	}
 
-	wantSources := []string{"oui", "icmp", "mdns", "discovery"}
+	wantSources := []string{"discovery"}
 	for i, source := range wantSources {
 		if got[i].Source != source {
 			t.Fatalf("expected issue %d source %q, got %q", i, source, got[i].Source)
@@ -854,13 +856,14 @@ func TestEngineFiltersPassiveMDNSObservationsOutsideTargets(t *testing.T) {
 	}
 }
 
-func TestEngineSkipsPreheatingWhenTargetExpansionFails(t *testing.T) {
+func TestEngineFailsFastWhenTargetExpansionFails(t *testing.T) {
 	events := make(chan contracts.HostObservation)
 	close(events)
 
-	releaseScan := make(chan struct{})
-	close(releaseScan)
-
+	ouiLoader := &countingOUILoader{}
+	icmpFactory := &stubICMPFactory{factory: errors.New("icmp unavailable in test")}
+	mdnsListener := &stubPassiveMDNSListener{cache: &stubNameCache{}}
+	arpSweeper := &stubActiveARPSweeper{}
 	preheater := &stubSubnetPreheater{}
 	discoverer := &stubHostDiscoverer{events: events}
 
@@ -871,16 +874,16 @@ func TestEngineSkipsPreheatingWhenTargetExpansionFails(t *testing.T) {
 			Concurrency: 1,
 		},
 		deps: engineDependencies{
-			ouiLoader:           &countingOUILoader{},
-			icmpFactory:         &stubICMPFactory{factory: errors.New("icmp unavailable in test")},
-			passiveMDNSListener: &stubPassiveMDNSListener{cache: &stubNameCache{}},
-			activeARPSweeper:    &stubActiveARPSweeper{},
+			ouiLoader:           ouiLoader,
+			icmpFactory:         icmpFactory,
+			passiveMDNSListener: mdnsListener,
+			activeARPSweeper:    arpSweeper,
 			targetExpander:      &stubTargetExpander{err: errors.New("bad subnet")},
 			subnetPreheater:     preheater,
 			hostDiscoverer:      discoverer,
 			portScanner: &blockingPortScanner{
 				scanStarted: make(chan struct{}),
-				releaseScan: releaseScan,
+				releaseScan: closedChan(),
 			},
 			hostEnricher: &countingHostEnricher{},
 			osDetector:   &stubOSDetector{},
@@ -889,14 +892,24 @@ func TestEngineSkipsPreheatingWhenTargetExpansionFails(t *testing.T) {
 
 	result := engine.Run(context.Background())
 
-	if got := preheater.Calls(); got != 0 {
-		t.Fatalf("expected preheater to be skipped when target expansion fails, got %d call(s)", got)
-	}
-	if got := discoverer.Calls(); got != 1 {
-		t.Fatalf("expected host discoverer to still be called once, got %d", got)
+	// An invalid target returns before any acquisition or pipeline stage.
+	for name, calls := range map[string]int{
+		"oui":       ouiLoader.Calls(),
+		"icmp":      icmpFactory.Calls(),
+		"mdns":      mdnsListener.Calls(),
+		"arp sweep": arpSweeper.Calls(),
+		"preheat":   preheater.Calls(),
+		"discovery": discoverer.Calls(),
+	} {
+		if calls != 0 {
+			t.Fatalf("expected no %s acquisition on expansion failure, got %d call(s)", name, calls)
+		}
 	}
 	if len(result.Hosts) != 0 {
-		t.Fatalf("expected no hosts when discoverer emits nothing, got %d", len(result.Hosts))
+		t.Fatalf("expected no hosts when expansion fails, got %d", len(result.Hosts))
+	}
+	if len(result.Issues) != 1 || result.Issues[0].Source != "discovery" {
+		t.Fatalf("expected a single discovery issue, got %+v", result.Issues)
 	}
 }
 
