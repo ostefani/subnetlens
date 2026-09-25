@@ -42,29 +42,68 @@ If you need to refresh it, download the latest CSV from the link above and repla
 
 ## Quick Start
 
-If you want to download repo and build your binary, follow the instruction below. To run a downloaded precompiled binary, read further.
-
-To clone the repository and build from source, follow the instructions below.
-To use a precompiled binary, see [Install precompiled build](#install-precompiled-build).
+Clone the repository to build from source, or see [Install a built binary](#install-a-built-binary) to use a precompiled binary.
 
 **Note:** On macOS and Linux, run with `sudo` to enable ARP and ICMP. On Windows, run the terminal as Administrator. TCP scan requires no elevated privileges.
 
-### Development
+### Prerequisites
+
+- Go 1.25+ (`go version`)
+- Clone and enter the repo:
 
 ```bash
 git clone https://github.com/ostefani/subnetlens
 cd subnetlens
-
-# ---Install dependencies---
 go mod tidy
+```
 
-# ---Build---
-go build .
-# or
-go build -o subnetlens
+### Run in dev mode (no install)
 
-# ---Run---
-subnetlens scan <target>
+Use this while developing. It always runs the current source and leaves no binary behind:
+
+```bash
+go run . scan <target> --plain
+```
+
+Examples:
+
+```bash
+go run . scan 192.168.1.0/24 --plain
+sudo go run . scan 192.168.1.0/24 --plain   # enables ARP + ICMP
+```
+
+Use `--plain` for script-friendly output while testing; omit it to launch the TUI.
+
+### Build a local binary
+
+```bash
+go build -o subnetlens .
+./subnetlens scan <target> --plain
+```
+
+Note the `./` prefix: zsh does not look in the current directory, so bare `subnetlens scan ...` reports `command not found` until the binary is installed on your `PATH`.
+
+### Install a built binary
+
+Pick one:
+
+```bash
+# Option A: install via Go (binary lands in $(go env GOPATH)/bin)
+go install .
+# then make sure that directory is on your PATH, e.g.:
+export PATH="$PATH:$(go env GOPATH)/bin"
+
+# Option B: build, then install your local build system-wide
+go build -o subnetlens .
+sudo install ./subnetlens /usr/local/bin/subnetlens
+```
+
+Verify:
+
+```bash
+which subnetlens
+subnetlens --help
+subnetlens scan 192.168.1.0/24 --plain
 ```
 
 ### Debug mode
@@ -97,19 +136,6 @@ The current test suite includes regression coverage for:
 
 ```bash
 go get -u all
-```
-
-### Install with Go
-
-```bash
-cd subnetlens
-go install .
-```
-
-### Install precompiled build
-
-```bash
-sudo mv subnetlens /usr/local/bin/
 ```
 
 ## Usage
