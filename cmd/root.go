@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -22,6 +23,7 @@ var (
 	flagBanners              bool
 	flagPlain                bool
 	flagAllAlive             bool
+	flagAllowLargeScan       bool
 )
 
 var (
@@ -79,6 +81,8 @@ func init() {
 		"Plain text output instead of TUI")
 	scanCmd.Flags().BoolVar(&flagAllAlive, "all-alive", false,
 		"Show all discovered hosts, including those that respond with TCP connection errors")
+	scanCmd.Flags().BoolVar(&flagAllowLargeScan, "allow-large-scan", false,
+		"Confirm scans expanding to more than 1024 addresses")
 
 	rootCmd.AddCommand(scanCmd)
 }
@@ -94,9 +98,22 @@ func runScan(cmd *cobra.Command, args []string) error {
 		DiscoveryConcurrency: flagDiscoveryConcurrency,
 		GrabBanners:          flagBanners,
 		AllAlive:             flagAllAlive,
+		AllowLargeScan:       flagAllowLargeScan,
 	}
 	if len(opts.Ports) == 0 {
 		opts.Ports = models.CommonPorts
+	}
+	// Fail fast before the TUI/plain runner starts. The engine re-validates
+	// consent itself, so library callers bypassing the CLI stay protected;
+	// expansion is a pure, cheap computation, so checking twice costs nothing.
+	// The consented-scan warning itself is emitted once, by the engine.
+	if _, err := scanner.CheckTargetConsent(subnet, opts); err != nil {
+		var confirmationErr *scanner.LargeScanConfirmationError
+		if errors.As(err, &confirmationErr) {
+			return fmt.Errorf("target %q expands to %d addresses (over the %d address confirmation threshold): re-run with --allow-large-scan", confirmationErr.Target, confirmationErr.Total, confirmationErr.Threshold)
+		}
+		// Syntax errors keep the historical path: the engine reports them
+		// as scan issues instead of failing the command here.
 	}
 	opts, socketBudget, warnings := scanner.PrepareScanOptions(opts)
 

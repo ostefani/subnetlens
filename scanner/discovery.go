@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"math"
 	"net"
 	"os"
 	"strings"
@@ -453,7 +454,13 @@ func rangeSpec(start, end uint32, skipEndpoints bool) (targetSpec, error) {
 		return targetSpec{}, fmt.Errorf("invalid range %d-%d", start, end)
 	}
 
-	total := int(uint64(end-start) + 1)
+	count := uint64(end-start) + 1
+	maxAddresses := uint64(math.MaxInt)
+	if count > maxAddresses {
+		return targetSpec{}, fmt.Errorf("target expands to %d addresses, exceeding the %d address enumeration limit", count, maxAddresses)
+	}
+
+	total := int(count)
 	if skipEndpoints && total > 2 {
 		start++
 		end--
@@ -485,6 +492,45 @@ func rangeSpec(start, end uint32, skipEndpoints bool) (targetSpec, error) {
 		total:    total,
 		contains: contains,
 	}, nil
+}
+
+// LargeScanConfirmationError signals a target large enough to require
+// explicit user consent. It is not a syntax error: setting AllowLargeScan
+// on the scan options clears it. Frontends add their own opt-in guidance
+// (e.g. the CLI names its flag); this message stays transport-agnostic.
+type LargeScanConfirmationError struct {
+	Target    string
+	Total     uint64
+	Threshold uint64
+}
+
+func (e *LargeScanConfirmationError) Error() string {
+	return fmt.Sprintf("target %q expands to %d addresses (over the %d address confirmation threshold): large-scan consent required (AllowLargeScan)", e.Target, e.Total, e.Threshold)
+}
+
+// CheckTargetConsent expands target and reports its address count. When the
+// count exceeds contracts.LargeScanThreshold without consent in opts, it
+// returns a *LargeScanConfirmationError. Syntax errors pass through unchanged
+// so callers keep their existing invalid-target behavior.
+func CheckTargetConsent(target string, opts models.ScanOptions) (uint64, error) {
+	spec, err := expandTargets(target)
+	if err != nil {
+		return 0, err
+	}
+	total := uint64(spec.total)
+	if contracts.RequiresLargeScanConsent(total, opts) {
+		return total, &LargeScanConfirmationError{Target: target, Total: total, Threshold: contracts.LargeScanThreshold}
+	}
+	return total, nil
+}
+
+// LargeScanWarning describes a consented-to large scan for the warnings
+// channel (plain output and TUI). It returns "" for ordinary-sized targets.
+func LargeScanWarning(target string, total uint64) string {
+	if total <= contracts.LargeScanThreshold {
+		return ""
+	}
+	return fmt.Sprintf("target %q expands to %d addresses: scan will take a while and generate substantial traffic", target, total)
 }
 
 func sendHostObservation(ctx context.Context, updates chan<- contracts.HostObservation, update contracts.HostObservation) bool {

@@ -136,6 +136,7 @@ subnetlens scan [subnet] [flags]
 - `-b`, `--banners` Grab service banners
 - `--plain` Plain text output (no TUI)
 - `--all-alive` Show all discovered hosts, including those that respond with TCP connection errors.
+- `--allow-large-scan` Confirm scans expanding to more than 1024 addresses (see [Large scans](#large-scans))
 
 ## Platform Support
 
@@ -157,6 +158,22 @@ subnetlens scan [subnet] [flags]
   subnetlens scan <IP> --plain --banners
   subnetlens scan <IP> --concurrency 100 --discovery-concurrency 400 --timeout 300
 ```
+
+## Large scans
+
+Targets expanding to more than **1024 addresses** require explicit consent. A `/24` (254 usable hosts) scans as usual; a `/16` (65,534) does not:
+
+```bash
+  subnetlens scan 10.0.0.0/16
+  # Error: target "10.0.0.0/16" expands to 65534 addresses
+  # (over the 1024 address confirmation threshold): re-run with --allow-large-scan
+
+  subnetlens scan 10.0.0.0/16 --allow-large-scan
+  # Warning: target "10.0.0.0/16" expands to 65534 addresses: ...
+  # ...scan proceeds in plain or TUI mode
+```
+
+The threshold is UX safety, not an architectural limit: enumeration streams (memory scales with discovered hosts, not candidate addresses), so cost grows in wall time — roughly one worst-case probe batch per discovery-concurrency window — which is what the flag asks you to accept. There is no hard maximum on 64-bit platforms. Library users set `ScanOptions.AllowLargeScan`; an invalid target fails fast the same way, before any socket is opened.
 
 ## Project Structure
 

@@ -969,6 +969,8 @@ type ScanOptions struct {
 	DiscoveryConcurrency int           // max concurrent host discovery probes; 0 falls back to Concurrency
 	GrabBanners          bool
 	AllAlive             bool
+	// AllowLargeScan permits scans exceeding the large-scan confirmation threshold.
+	AllowLargeScan bool
 }
 
 const DefaultConcurrency = 100

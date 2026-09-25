@@ -40,7 +40,7 @@ type passiveMDNSSession struct {
 }
 
 type activeARPSweeper interface {
-	Start(context.Context, string, *ARPCache, issueReporter)
+	Start(context.Context, string, iter.Seq[string], *ARPCache, issueReporter)
 }
 
 type targetExpander interface {
@@ -98,10 +98,10 @@ func (f passiveMDNSListenerFunc) Start(ctx context.Context) (passiveMDNSSession,
 	return f(ctx)
 }
 
-type activeARPSweeperFunc func(context.Context, string, *ARPCache, issueReporter)
+type activeARPSweeperFunc func(context.Context, string, iter.Seq[string], *ARPCache, issueReporter)
 
-func (f activeARPSweeperFunc) Start(ctx context.Context, target string, cache *ARPCache, issues issueReporter) {
-	f(ctx, target, cache, issues)
+func (f activeARPSweeperFunc) Start(ctx context.Context, target string, targets iter.Seq[string], cache *ARPCache, issues issueReporter) {
+	f(ctx, target, targets, cache, issues)
 }
 
 type targetExpanderFunc func(string) (targetSpec, error)
