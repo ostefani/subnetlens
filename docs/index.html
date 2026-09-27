@@ -8,13 +8,13 @@
             name="description"
             content="Fast, concurrent network scanner. Discovers live hosts, TCP ports, vendors, hostnames, and OS hints in one Go binary." />
         <meta property="og:title" content="SubnetLens" />
-        <meta property="og:description" content="Open-source network scanning now. Pro coming soon." />
+        <meta property="og:description" content="Open-source network scanner. Pro private release with UDP probing and watch mode." />
         <meta property="og:type" content="website" />
-        <meta property="og:image" content="cover_image.jpg" />
+        <meta property="og:image" content="https://ostefani.github.io/subnetlens/cover_image.jpg" />
         <meta name="twitter:card" content="summary_large_image" />
-        <meta name="twitter:image" content="cover_image.jpg" />
+        <meta name="twitter:image" content="https://ostefani.github.io/subnetlens/cover_image.jpg" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crSubnetLensorigin />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
         <link
             href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap"
             rel="stylesheet" />
@@ -63,7 +63,7 @@
                 <div class="hero-inner">
                     <div class="hero-status">
                         <span class="dot"></span>
-                        SubnetLens Core available now · Pro in development
+                        SubnetLens Core available now · Pro private release
                     </div>
 
                     <h1>See everything<br />on your <span>network</span></h1>
@@ -115,11 +115,11 @@
                 <div class="inner">
                     <div class="section-head">
                         <p class="eyebrow">Editions</p>
-                        <h2>SubnetLens Core now. Pro in development.</h2>
+                        <h2>SubnetLens Core now. Pro as a private release.</h2>
                         <p class="lead">
                             SubnetLens Core is a complete scanner for day-to-day network inventory. Pro extends it for
-                            UDP-heavy environments and continuous monitoring, currently in development, not publicly
-                            available yet.
+                            UDP-heavy environments and continuous monitoring. Pro is finished and distributed
+                            privately — request access to get it.
                         </p>
                     </div>
 
@@ -132,7 +132,7 @@
                     <div class="table-wrap">
                         <table>
                             <caption style="display: none">
-                                SubnetLens SubnetLens vs Pro feature comparison
+                                SubnetLens Core vs Pro feature comparison
                             </caption>
                             <thead>
                                 <tr>
@@ -149,10 +149,11 @@
                                 </tr>
                                 <tr>
                                     <th scope="row">
-                                        Host discovery <span class="note">TCP, ICMP, ARP, and mDNS-assisted</span>
+                                        Host discovery
+                                        <span class="note">TCP, ICMP, ARP, mDNS + NBNS/PTR hostname resolution</span>
                                     </th>
                                     <td><span class="s-live" aria-label="Live in SubnetLens">✓</span></td>
-                                    <td><span class="s-planned" aria-label="Live in Pro">✓</span></td>
+                                    <td><span class="s-live" aria-label="Live in Pro">✓</span></td>
                                 </tr>
                                 <tr>
                                     <th scope="row">
@@ -160,12 +161,12 @@
                                         <span class="note"> with configurable ports and concurrency</span>
                                     </th>
                                     <td><span class="s-live">✓</span></td>
-                                    <td><span class="s-planned">✓</span></td>
+                                    <td><span class="s-live">✓</span></td>
                                 </tr>
                                 <tr>
                                     <th scope="row">Hostname, MAC vendor, OS, and device hints</th>
                                     <td><span class="s-live">✓</span></td>
-                                    <td><span class="s-planned">✓</span></td>
+                                    <td><span class="s-live">✓</span></td>
                                 </tr>
                                 <tr>
                                     <th scope="row">
@@ -173,19 +174,19 @@
                                         <span class="note"></span>
                                     </th>
                                     <td><span class="s-live">✓</span></td>
-                                    <td><span class="s-planned">✓</span></td>
+                                    <td><span class="s-live">✓</span></td>
                                 </tr>
                                 <tr>
                                     <th scope="row">Interactive TUI</th>
                                     <td><span class="s-live">✓</span></td>
                                     <td>
-                                        <span class="s-planned" aria-label="Planned for Pro">—</span>
+                                        <span class="s-absent" aria-label="Not in Pro">—</span>
                                     </td>
                                 </tr>
                                 <tr>
                                     <th scope="row">Plain terminal output <span class="note"></span></th>
                                     <td><span class="s-live">✓</span></td>
-                                    <td><span class="s-planned">✓</span></td>
+                                    <td><span class="s-live">✓</span></td>
                                 </tr>
 
                                 <tr class="group-row">
@@ -195,17 +196,18 @@
                                 </tr>
                                 <tr>
                                     <th scope="row">
-                                        UDP probing <span class="note">SSDP, mDNS, NBNS, SNMP, DNS, NTP</span>
+                                        UDP probing
+                                        <span class="note">SSDP/mDNS discovery + NBNS, SNMP, DNS, NTP host probes</span>
                                     </th>
                                     <td><span class="s-absent">—</span></td>
-                                    <td><span class="s-planned">✓</span></td>
+                                    <td><span class="s-live">✓</span></td>
                                 </tr>
                                 <tr>
                                     <th scope="row">
                                         Metadata-based device classification <span class="note">from UDP evidence</span>
                                     </th>
                                     <td><span class="s-absent">—</span></td>
-                                    <td><span class="s-planned">✓</span></td>
+                                    <td><span class="s-live">✓</span></td>
                                 </tr>
                                 <tr>
                                     <th scope="row">
@@ -213,20 +215,20 @@
                                         <span class="note">appearance, change, and disappearance alerts</span>
                                     </th>
                                     <td><span class="s-absent">—</span></td>
-                                    <td><span class="s-planned">✓</span></td>
+                                    <td><span class="s-live">✓</span></td>
                                 </tr>
                                 <tr>
                                     <th scope="row">Webhook delivery for watch alerts</th>
                                     <td><span class="s-absent">—</span></td>
-                                    <td><span class="s-planned">✓</span></td>
+                                    <td><span class="s-live">✓</span></td>
                                 </tr>
                                 <tr>
                                     <th scope="row">
-                                        Cross-cycle identity matching evidence fingerprints, grace windows
-                                        <span class="note"></span>
+                                        Cross-cycle identity matching
+                                        <span class="note">evidence fingerprints, grace windows, cooldowns</span>
                                     </th>
                                     <td><span class="s-absent">—</span></td>
-                                    <td><span class="s-planned">✓</span></td>
+                                    <td><span class="s-live">✓</span></td>
                                 </tr>
 
                                 <tr class="group-row">
@@ -239,7 +241,7 @@
                                         Structured exports
                                         <span class="note">JSON, CSV — pipeline and archive use</span>
                                     </th>
-                                    <td><span class="s-absent">✓</span></td>
+                                    <td><span class="s-absent">—</span></td>
                                     <td>
                                         <span class="s-planned">✓</span>
                                     </td>
@@ -250,26 +252,33 @@
                                     </th>
                                     <td><span class="s-absent">—</span></td>
                                     <td>
-                                        <span class="s-planned">—</span>
+                                        <span class="s-planned">✓</span>
                                     </td>
                                 </tr>
                             </tbody>
                         </table>
                     </div>
 
-                    <div class="launch-banner"><strong>Pro has not been released yet.</strong>&nbsp;</div>
+                    <div class="launch-banner">
+                            <strong>Pro is finished and distributed privately.</strong>&nbsp;Request access via&nbsp;<a
+                                href="https://github.com/ostefani/subnetlens/issues/new"
+                                target="_blank"
+                                rel="noopener"
+                                >GitHub issues</a
+                            >&nbsp;to get the binary.
+                        </div>
                 </div>
             </section>
 
             <!-- SubnetLens -->
-            <section id="SubnetLens Core">
+            <section id="SubnetLens">
                 <div class="inner">
                     <div class="split">
                         <div>
                             <p class="eyebrow">SubnetLens Core</p>
                             <h2>A complete scanner, not a demo.</h2>
                             <p class="lead">
-                                SubnetLens SubnetLens does what it says. You can run it on any network right now, with
+                                SubnetLens Core does what it says. You can run it on any network right now, with
                                 no account, no telemetry, and no artificial limits.
                             </p>
                             <div style="margin-top: 1.5rem; display: flex; gap: 10px; flex-wrap: wrap">
@@ -293,8 +302,8 @@
                             <li>
                                 <span class="tick">✓</span>
                                 <span
-                                    ><strong>TCP, ICMP, ARP, and mDNS discovery</strong> — finds hosts that ping-only
-                                    scanners miss</span
+                                    ><strong>TCP, ICMP, ARP, and mDNS discovery</strong> — active + passive mDNS,
+                                    NBNS/PTR hostname resolution; finds hosts that ping-only scanners miss</span
                                 >
                             </li>
                             <li>
@@ -344,10 +353,18 @@
                         <p class="eyebrow">SubnetLens Pro</p>
                         <h2>Built for continuous monitoring.</h2>
                         <p class="lead">
-                            The private Pro build extends the SubnetLens Core for UDP-heavy networks and continuous
+                            The private Pro release extends SubnetLens Core for UDP-heavy networks and continuous
                             monitoring.
                         </p>
-                        <p class="lead note">Not publicly released yet.</p>
+                        <p class="lead note">
+                            Finished. Distributed privately —
+                            <a
+                                href="https://github.com/ostefani/subnetlens/issues/new"
+                                target="_blank"
+                                rel="noopener"
+                                >request access</a
+                            >.
+                        </p>
                     </div>
 
                     <div class="pro-grid">
@@ -369,7 +386,7 @@
                             <p>Go beyond TCP with full UDP probing and service-level fingerprinting.</p>
                             <ul>
                                 <li>
-                                    UDP discovery and host probing acrSubnetLens SSDP, mDNS, NBNS, SNMP, DNS, and NTP
+                                    UDP discovery via SSDP and mDNS; host probing across SSDP, mDNS, NBNS, SNMP, DNS, and NTP
                                 </li>
                                 <li>
                                     Evidence capture and metadata-driven classification for network appliances and
@@ -396,7 +413,7 @@
                                 <li>Scheduled re-scans on a configurable interval</li>
                                 <li>Diff output — only shows what changed</li>
                                 <li>Webhook delivery for watch alerts, plus terminal watch output</li>
-                                <li>Grace windows, cooldowns, and identity-aware matching acrSubnetLens scan cycles</li>
+                                <li>Grace windows, cooldowns, and identity-aware matching across scan cycles</li>
                             </ul>
                         </div>
 
@@ -440,11 +457,14 @@
                                     <path d="M3 9h18M9 21V9"></path>
                                 </svg>
                             </div>
-                            <h3>GUI</h3>
-                            <p>An interactive network map, inspect its ports, track it over time.</p>
+                            <h3>GUI <span class="note">(planned)</span></h3>
+                            <p>
+                                Planned for a future Pro update: an interactive network map — inspect a host's
+                                ports, track it over time.
+                            </p>
                             <ul>
                                 <li>Visual subnet topology</li>
-                                <li>GUI and network map for visual inspection</li>
+                                <li>Host history and inspection</li>
                                 <li>Export to PNG / SVG</li>
                             </ul>
                         </div>
@@ -461,6 +481,11 @@
                         <p class="lead">
                             No package manager required. Use Go directly, build from source, or download a release
                             binary.
+                        </p>
+                        <p class="note" style="font-size: 14px; margin-bottom: 1.5rem">
+                            ARP and ICMP need elevated privileges (<code>sudo</code>/root; Npcap on Windows) —
+                            TCP-only scans don't. Targets expanding to more than 1024 addresses require
+                            <code>--allow-large-scan</code>.
                         </p>
                     </div>
                     <div class="install-box">
@@ -503,7 +528,7 @@
                             </div>
                             <div><span class="k">git</span> clone https://github.com/ostefani/subnetlens</div>
                             <div><span class="k">cd</span> subnetlens</div>
-                            <div><span class="k">go</span> build .</div>
+                            <div><span class="k">go</span> build -o subnetlens .</div>
                             <div>
                                 <span class="k">sudo ./subnetlens</span> scan <span class="s">192.168.1.0/24</span>
                             </div>

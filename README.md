@@ -13,16 +13,19 @@ _**Key Rotation Note:** New signature keys effective Sep 16, 2026. Legacy keys a
 
 A fast, concurrent network scanner with a TUI and plain-text CLI, built in Go.
 
+🌐 Website: <https://ostefani.github.io/subnetlens/> — Core vs Pro comparison and install guide.
+
 Supports multiple discovery methods:
 
 - TCP connect scan (no elevated privileges required)
 - ICMP echo (requires root / administrator)
 - ARP scan (Linux/macOS; Windows requires Npcap)
-- mDNS (passive) — listen for local service announcements
+- mDNS (passive listener + active discovery trigger)
+- Hostname resolution via mDNS, NBNS, and reverse DNS (PTR)
 
 ## Features
 
-- **Host discovery** (TCP, ICMP, ARP)
+- **Host discovery** (TCP, ICMP, ARP, mDNS)
 - **Port scanning** (TCP connect)
 - **OS & Device Fingerprinting:** Heuristically detects operating systems and device types.
 - **Vendor & MAC Resolution:** Uses OUI databases to identify device vendors and detects randomized MAC addresses.
@@ -208,19 +211,15 @@ subnetlens /
 ├── main.go               # Entrypoint
 ├── cmd/
 │   └── root.go           # Cobra CLI commands
-├── scanner/
-│   ├── arp.go
-│   ├── discovery.go
-│   ├── engine.go
-│   ├── helpers.go
-│   ├── icmp.go
-│   ├── osdetect.go
+├── scanner/              # Engine, discovery, enrichment, registry
+│   ├── contracts/        # Extension seams (DiscoveryModule, HostScanner, ...)
 │   └── oui.csv           # bundled IEEE OUI data used for vendor resolution
-├── models/
-│   └── models.go
-└── ui/
-    └── tui/
-        └── tui.go
+├── transports/           # TCP, ARP, ICMP, mDNS, NBNS protocol code
+├── fingerprint/          # Rule-based OS/device hints from banners
+├── internal/             # Shared net/text helpers
+├── models/               # Host, ScanOptions, ScanResult
+├── ui/tui/               # Bubble Tea interface
+└── docs/                 # Landing page (https://ostefani.github.io/subnetlens/)
 ```
 
 ## Roadmap
@@ -231,9 +230,9 @@ subnetlens /
 - [x] Add tests
 - [x] Scan profiles: `--all-alive`
 - [ ] JSON / CSV export (`--output result.json`)
-- [ ] UDP port scanning (Pro)
-- [ ] GUI with interactive network node graph (Pro)
-- [ ] `subnetlens watch` — re-scan on interval, alert on changes (Pro)
+- [x] UDP port scanning (Pro — private release)
+- [ ] GUI with interactive network node graph (Pro — planned)
+- [x] `subnetlens watch` — re-scan on interval, alert on changes (Pro — private release)
 
 ## Contributing
 
@@ -247,14 +246,19 @@ MIT © 2026 Olha Stefanishyna
 
 ## SubnetLens Pro
 
-An upcoming proprietary extension of SubnetLens focused on advanced scanning capabilities. Designed for users who need deeper visibility, automation, and continuous monitoring.
+A proprietary extension of SubnetLens focused on advanced scanning capabilities. Finished and distributed as a **private release** — request access via [GitHub issues](https://github.com/ostefani/subnetlens/issues/new). Designed for users who need deeper visibility, automation, and continuous monitoring.
 
-### Planned features
+### Available in Pro now
 
-- UDP port scanning and protocol-specific probing
-- Extended service fingerprinting
+- UDP discovery (SSDP, mDNS) and protocol-specific host probing (SSDP, mDNS, NBNS, SNMP, DNS, NTP)
+- Evidence-based service fingerprinting and metadata-driven device classification
+- `subnetlens watch` — continuous scanning with change detection, grace windows, and HMAC-signed webhook alerts
+
+### Planned
+
 - Interactive GUI with network visualization
-- `subnetlens watch` — continuous scanning with change detection and alerts
-- Advanced output formats and reporting
+- Advanced output formats and reporting (JSON/CSV export)
+
+Note: the Pro binary uses `-subnet` / `-watch` flags instead of the Core `scan` subcommand; details ship with the Pro README on access.
 
 The core project will remain open source and fully usable. Pro features are designed for advanced analysis and extended workflows.
