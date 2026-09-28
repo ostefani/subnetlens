@@ -57,29 +57,38 @@ func TestVersionFlagReportsBuildMetadata(t *testing.T) {
 	}
 }
 
-func TestResolveExportFormat(t *testing.T) {
+func TestResolveExport(t *testing.T) {
 	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
+	blocker := filepath.Join(dir, "blocker")
+	if err := os.WriteFile(blocker, []byte("not a dir"), 0o644); err != nil {
+		t.Fatalf("seed blocker file: %v", err)
+	}
 	tests := []struct {
 		name     string
 		output   string
 		format   string
 		want     export.Format
+		wantDir  string
 		disabled bool
 		wantErr  string
 	}{
-		{"disabled", "", "", "", true, ""},
-		{"json inferred", filepath.Join(dir, "o.json"), "", export.FormatJSON, false, ""},
-		{"csv inferred", filepath.Join(dir, "o.csv"), "", export.FormatCSV, false, ""},
-		{"override", filepath.Join(dir, "o"), "csv", export.FormatCSV, false, ""},
-		{"stdout needs format", "-", "json", export.FormatJSON, false, ""},
-		{"format requires output", "", "json", "", false, "--format requires --output"},
-		{"bad extension", filepath.Join(dir, "o.txt"), "", "", false, "cannot infer format"},
-		{"bad override", filepath.Join(dir, "o.json"), "yaml", "", false, "invalid --format"},
-		{"unwritable dir", filepath.Join(dir, "nope", "o.json"), "", "", false, "cannot write export file"},
+		{"disabled", "", "", "", "", true, ""},
+		{"stdout needs format", "-", "json", export.FormatJSON, "", false, ""},
+		{"stdout without format", "-", "", "", "", false, "--format is required with --output"},
+		{"format only uses default dir", "", "json", export.FormatJSON, filepath.Join(dir, ".subnetlens"), false, ""},
+		{"format only rejects bad format", "", "yaml", "", "", false, "invalid --format"},
+		{"output dir auto-names", dir, "json", export.FormatJSON, dir, false, ""},
+		{"output dir keeps trailing separator working", dir + string(os.PathSeparator), "csv", export.FormatCSV, dir, false, ""},
+		{"output without format", dir, "", "", "", false, "--format is required with --output"},
+		{"output bad format", dir, "yaml", "", "", false, "invalid --format"},
+		{"output missing dir", filepath.Join(dir, "nope"), "json", "", "", false, "cannot use directory"},
+		{"output file rejected", blocker, "json", "", "", false, "is not a directory"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := resolveExportFormat(tt.output, tt.format)
+			gotPath, got, err := resolveExport(tt.output, tt.format)
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("expected error containing %q, got %v", tt.wantErr, err)
@@ -87,15 +96,62 @@ func TestResolveExportFormat(t *testing.T) {
 				return
 			}
 			if err != nil {
-				t.Fatalf("resolveExportFormat: %v", err)
+				t.Fatalf("resolveExport: %v", err)
 			}
-			if tt.disabled && got != "" {
-				t.Fatalf("expected export to be disabled, got format %q", got)
+			if tt.disabled {
+				if got != "" || gotPath != "" {
+					t.Fatalf("expected export to be disabled, got path %q format %q", gotPath, got)
+				}
+				return
 			}
-			if !tt.disabled && got != tt.want {
+			if got != tt.want {
 				t.Fatalf("expected format %q, got %q", tt.want, got)
 			}
+			if tt.wantDir == "" {
+				if gotPath != tt.output {
+					t.Fatalf("expected path %q, got %q", tt.output, gotPath)
+				}
+				return
+			}
+			if parent := filepath.Dir(gotPath); parent != tt.wantDir {
+				t.Fatalf("expected a path under %q, got %q", tt.wantDir, gotPath)
+			}
+			base := filepath.Base(gotPath)
+			if !strings.HasPrefix(base, "scan-") || !strings.HasSuffix(base, "."+string(tt.want)) {
+				t.Fatalf("expected an auto-named %q report, got %q", tt.want, gotPath)
+			}
 		})
+	}
+}
+
+func TestResolveExportAccumulatesDefaultExports(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	first, format, err := resolveExport("", "json")
+	if err != nil {
+		t.Fatalf("resolveExport: %v", err)
+	}
+	if err := writeExport(first, testExportResult(), format); err != nil {
+		t.Fatalf("write first export: %v", err)
+	}
+	second, _, err := resolveExport("", "json")
+	if err != nil {
+		t.Fatalf("resolveExport rerun: %v", err)
+	}
+	if second == first {
+		t.Fatalf("expected a rerun to pick a fresh path, got %q twice", first)
+	}
+	if err := writeExport(second, testExportResult(), format); err != nil {
+		t.Fatalf("write second export: %v", err)
+	}
+	entries, err := os.ReadDir(filepath.Join(home, ".subnetlens"))
+	if err != nil {
+		t.Fatalf("read export dir: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected two accumulated exports, got %d", len(entries))
 	}
 }
 

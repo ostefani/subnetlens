@@ -98,9 +98,9 @@ func init() {
 	scanCmd.Flags().BoolVar(&flagAllowLargeScan, "allow-large-scan", false,
 		"Confirm scans expanding to more than 1024 addresses")
 	scanCmd.Flags().StringVar(&flagOutput, "output", "",
-		"Write scan results to a file (format from .json/.csv extension; - streams to stdout instead of saving)")
+		"Save the scan report into DIR instead of ~/.subnetlens (the file is named automatically; - prints to stdout)")
 	scanCmd.Flags().StringVar(&flagFormat, "format", "",
-		"Export format: json or csv (default: inferred from --output)")
+		"Report format: json or csv (required with --output; without --output, saves to ~/.subnetlens)")
 
 	rootCmd.AddCommand(scanCmd)
 }
@@ -126,25 +126,53 @@ func resolveScanTarget(args []string, allowLarge bool) (resolvedTarget, error) {
 	return resolvedTarget{subnet: args[0]}, nil
 }
 
-// resolveExportFormat validates the export flags before any scanning starts.
-// It returns "" when export is disabled. The writability check fails fast on
-// typo'd paths so a full scan is never wasted; WriteFile still reports the
+// resolveExport validates the export flags before any scanning starts and
+// resolves the destination path. It returns "" when export is disabled.
+// --format alone saves a timestamped report to ~/.subnetlens; --output
+// names an existing folder the report is saved into (named automatically);
+// "-" streams to stdout. --format is always required when exporting, since
+// there is no extension to infer it from. The checks fail fast on bad
+// inputs so a full scan is never wasted; the write path still reports the
 // authoritative error at write time.
-func resolveExportFormat(output, format string) (export.Format, error) {
-	if output == "" {
-		if format != "" {
-			return "", fmt.Errorf("--format requires --output")
-		}
-		return "", nil
+func resolveExport(output, format string) (string, export.Format, error) {
+	if output == "" && format == "" {
+		return "", "", nil
 	}
-	resolved, err := export.ResolveFormat(output, format)
+	if format == "" {
+		return "", "", fmt.Errorf("--format is required with --output (json or csv)")
+	}
+	resolved, err := export.ResolveFormat("", format)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	if err := export.CheckWritable(output); err != nil {
-		return "", err
+	if output == "" {
+		path, err := export.DefaultExportPath(".subnetlens", resolved)
+		if err != nil {
+			return "", "", err
+		}
+		if err := export.CheckWritable(path); err != nil {
+			return "", "", err
+		}
+		return path, resolved, nil
 	}
-	return resolved, nil
+	if output == "-" {
+		return "-", resolved, nil
+	}
+	info, err := os.Stat(output)
+	if err != nil {
+		return "", "", fmt.Errorf("--output: cannot use directory %q: %w", output, err)
+	}
+	if !info.IsDir() {
+		return "", "", fmt.Errorf("--output %q is not a directory: pass an existing folder; the report file is named automatically", output)
+	}
+	path, err := export.TimestampedExportPath(output, resolved)
+	if err != nil {
+		return "", "", err
+	}
+	if err := export.CheckWritable(path); err != nil {
+		return "", "", err
+	}
+	return path, resolved, nil
 }
 
 // keepRunningOnClosedStdout reports whether the scan must survive stdout
@@ -170,11 +198,11 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 	subnet, auto := resolved.subnet, resolved.auto
 
-	exportFormat, err := resolveExportFormat(flagOutput, flagFormat)
+	exportPath, exportFormat, err := resolveExport(flagOutput, flagFormat)
 	if err != nil {
 		return err
 	}
-	if keepRunningOnClosedStdout(flagOutput) {
+	if keepRunningOnClosedStdout(exportPath) {
 		ignoreSigpipeOnClosedStdout()
 	}
 
@@ -213,20 +241,21 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 
 	if flagPlain {
-		return runPlain(opts, socketBudget, warnings, flagOutput, exportFormat)
+		return runPlain(opts, socketBudget, warnings, exportPath, exportFormat)
 	}
 
 	result, err := tui.Run(opts, socketBudget, warnings)
 	if err != nil {
 		return err
 	}
-	return exportScanResult(flagOutput, result, exportFormat)
+	return exportScanResult(exportPath, result, exportFormat)
 }
 
 // exportScanResult writes the export file, if requested. A nil result means
 // the user quit the TUI before the scan completed: there is nothing
 // trustworthy to write, so the export is skipped with a note instead of
-// emitting a partial file.
+// emitting a partial file. Successful file exports announce their path on
+// stderr (stdout stays clean for pipes); stdout streaming stays silent.
 func exportScanResult(path string, result *models.ScanResult, format export.Format) error {
 	if path == "" {
 		return nil
@@ -235,7 +264,13 @@ func exportScanResult(path string, result *models.ScanResult, format export.Form
 		fmt.Fprintln(os.Stderr, "Scan quit before completion; skipping export.")
 		return nil
 	}
-	return writeExport(path, result, format)
+	if err := writeExport(path, result, format); err != nil {
+		return err
+	}
+	if path != "-" {
+		fmt.Fprintf(os.Stderr, "Exported scan results to %s\n", path)
+	}
+	return nil
 }
 
 // runPlain outputs results as plain text — useful for scripting / CI pipelines.
