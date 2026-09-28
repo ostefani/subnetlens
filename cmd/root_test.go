@@ -5,6 +5,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -242,5 +243,91 @@ func TestExportScanResult(t *testing.T) {
 	}
 	if _, err := os.Stat(written); err != nil {
 		t.Fatalf("expected the export file to exist: %v", err)
+	}
+}
+
+func stubAutoScanTarget(t *testing.T, subnet, narrowedFrom string, err error) {
+	t.Helper()
+	prevTarget := autoScanTarget
+	prevFlag := flagAllowLargeScan
+	autoScanTarget = func(bool) (string, string, error) { return subnet, narrowedFrom, err }
+	flagAllowLargeScan = false
+	t.Cleanup(func() {
+		autoScanTarget = prevTarget
+		flagAllowLargeScan = prevFlag
+	})
+}
+
+func TestScanCmdAcceptsZeroOrOneArg(t *testing.T) {
+	if err := scanCmd.Args(scanCmd, nil); err != nil {
+		t.Fatalf("expected bare scan to be accepted, got %v", err)
+	}
+	if err := scanCmd.Args(scanCmd, []string{"192.168.1.0/24"}); err != nil {
+		t.Fatalf("expected one arg to be accepted, got %v", err)
+	}
+	if err := scanCmd.Args(scanCmd, []string{"a", "b"}); err == nil {
+		t.Fatal("expected two args to be rejected")
+	}
+}
+
+func TestRunScanAutoTargetRefusedWhenLarge(t *testing.T) {
+	stubAutoScanTarget(t, "10.0.0.0/16", "", nil)
+
+	err := runScan(nil, nil)
+	if err == nil {
+		t.Fatal("expected auto-detected large scan without --allow-large-scan to fail")
+	}
+	for _, want := range []string{"auto-detected", "10.0.0.0/16", "65534", "--allow-large-scan"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("expected error to contain %q, got %q", want, err.Error())
+		}
+	}
+}
+
+func TestRunScanNoTargetResolutionError(t *testing.T) {
+	stubAutoScanTarget(t, "", "", errors.New("no active IPv4 network interface found"))
+
+	err := runScan(nil, nil)
+	if err == nil {
+		t.Fatal("expected resolution failure to fail the scan")
+	}
+	if !strings.Contains(err.Error(), "could not determine the local subnet") {
+		t.Fatalf("expected a helpful resolution error, got %q", err.Error())
+	}
+}
+
+func TestRunScanLocalKeywordUsesResolver(t *testing.T) {
+	stubAutoScanTarget(t, "", "", errors.New("no active IPv4 network interface found"))
+
+	err := runScan(nil, []string{"local"})
+	if err == nil {
+		t.Fatal("expected scan local to use the resolver and fail here")
+	}
+	if !strings.Contains(err.Error(), "could not determine the local subnet") {
+		t.Fatalf("expected a helpful resolution error, got %q", err.Error())
+	}
+}
+
+func TestResolveScanTargetPassesExplicitTargetThrough(t *testing.T) {
+	stubAutoScanTarget(t, "", "", errors.New("resolver must not be called"))
+
+	resolved, err := resolveScanTarget([]string{"192.168.1.0/24"}, false)
+	if err != nil {
+		t.Fatalf("explicit target must not consult the resolver: %v", err)
+	}
+	if resolved.auto || resolved.subnet != "192.168.1.0/24" || resolved.narrowedFrom != "" {
+		t.Fatalf("expected plain passthrough of 192.168.1.0/24, got %+v", resolved)
+	}
+}
+
+func TestResolveScanTargetReportsNarrowing(t *testing.T) {
+	stubAutoScanTarget(t, "198.18.0.0/24", "198.18.0.0/16", nil)
+
+	resolved, err := resolveScanTarget(nil, false)
+	if err != nil {
+		t.Fatalf("resolveScanTarget: %v", err)
+	}
+	if !resolved.auto || resolved.subnet != "198.18.0.0/24" || resolved.narrowedFrom != "198.18.0.0/16" {
+		t.Fatalf("expected narrowed auto target, got %+v", resolved)
 	}
 }

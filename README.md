@@ -156,6 +156,8 @@ ifconfig  | grep "inet "     # macOS
 subnetlens scan [subnet] [flags]
 ```
 
+With no target — `subnetlens scan` or `subnetlens scan local` — the local subnet is detected automatically from your active network interfaces. Private (home/office) networks win over VPN tunnels, and a detected subnet over 1024 addresses narrows to your /24 unless `--allow-large-scan` is given.
+
 **Flags:**
 
 - `-p`, `--ports` string Comma-separated ports to scan (default: common 23 ports)
@@ -183,6 +185,8 @@ subnetlens scan [subnet] [flags]
 **Examples:**
 
 ```bash
+  subnetlens scan
+  subnetlens scan local
   subnetlens scan <IP>
   subnetlens scan <IP start>-<IP end>
   subnetlens scan <IP> --ports 22,80,443,8080
