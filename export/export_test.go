@@ -5,6 +5,8 @@ package export
 import (
 	"bytes"
 	"encoding/csv"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -244,6 +246,67 @@ func TestWriteFileMissingDirectory(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nope", "out.json")
 	if err := WriteFile(path, testScanResult(), FormatJSON); err == nil {
 		t.Fatal("expected an error for a missing directory")
+	}
+}
+
+func TestAtomicWriteRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "out.json")
+	if err := AtomicWrite(path, func(w io.Writer) error {
+		_, err := w.Write([]byte(`{"version":1}`))
+		return err
+	}); err != nil {
+		t.Fatalf("AtomicWrite: %v", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read written file: %v", err)
+	}
+	if string(raw) != `{"version":1}` {
+		t.Fatalf("expected the encoded content, got %q", raw)
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not preserve POSIX permission bits")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat written file: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o644 {
+		t.Fatalf("expected mode 0644, got %o", perm)
+	}
+}
+
+func TestAtomicWriteEncodeErrorLeavesNothingBehind(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "out.json")
+	sentinel := errors.New("boom")
+	err := AtomicWrite(path, func(w io.Writer) error {
+		if _, werr := w.Write([]byte("partial")); werr != nil {
+			return werr
+		}
+		return sentinel
+	})
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("expected the encode error back, got %v", err)
+	}
+	if _, serr := os.Stat(path); !os.IsNotExist(serr) {
+		t.Fatalf("expected no destination file, stat err: %v", serr)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read dir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("expected no temp litter, got %v", entries)
+	}
+}
+
+func TestAtomicWriteMissingDirectory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nope", "out.json")
+	err := AtomicWrite(path, func(w io.Writer) error { return nil })
+	if err == nil || !strings.Contains(err.Error(), "create export file") {
+		t.Fatalf("expected missing-dir error, got %v", err)
 	}
 }
 

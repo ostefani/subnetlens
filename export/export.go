@@ -319,11 +319,10 @@ func userExportDir(appDir string) (string, error) {
 	return os.Getwd()
 }
 
-// WriteFile writes the export atomically: the content lands in a temporary
-// sibling file first and is renamed over the destination, so a crash or
-// interrupt never leaves a half-written export behind. An existing file is
-// replaced.
-func WriteFile(path string, result *models.ScanResult, format Format) error {
+// AtomicWrite writes bytes produced by encode to path atomically: the
+// content lands in a temporary sibling file first and is renamed over the
+// destination. An existing file is replaced.
+func AtomicWrite(path string, encode func(w io.Writer) error) error {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".subnetlens-export-*")
 	if err != nil {
@@ -332,7 +331,7 @@ func WriteFile(path string, result *models.ScanResult, format Format) error {
 	tmpName := tmp.Name()
 	defer os.Remove(tmpName)
 
-	if err := Encode(tmp, result, format); err != nil {
+	if err := encode(tmp); err != nil {
 		tmp.Close()
 		return fmt.Errorf("encode export: %w", err)
 	}
@@ -346,4 +345,14 @@ func WriteFile(path string, result *models.ScanResult, format Format) error {
 		return fmt.Errorf("write export file: %w", err)
 	}
 	return nil
+}
+
+// WriteFile writes the export atomically via AtomicWrite: the content lands
+// in a temporary sibling file first and is renamed over the destination, so
+// a crash or interrupt never leaves a half-written export behind. An
+// existing file is replaced.
+func WriteFile(path string, result *models.ScanResult, format Format) error {
+	return AtomicWrite(path, func(w io.Writer) error {
+		return Encode(w, result, format)
+	})
 }
