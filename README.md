@@ -166,6 +166,8 @@ subnetlens scan [subnet] [flags]
 - `--plain` Plain text output (no TUI)
 - `--all-alive` Show all discovered hosts, including those that respond with TCP connection errors.
 - `--allow-large-scan` Confirm scans expanding to more than 1024 addresses (see [Large scans](#large-scans))
+- `--output` string Write scan results to FILE (format from .json/.csv extension; `-` streams to stdout instead of saving)
+- `--format` string Export format: json or csv (default: inferred from --output)
 
 ## Platform Support
 
@@ -186,6 +188,18 @@ subnetlens scan [subnet] [flags]
   subnetlens scan <IP> --ports 22,80,443,8080
   subnetlens scan <IP> --plain --banners
   subnetlens scan <IP> --concurrency 100 --discovery-concurrency 400 --timeout 300
+  subnetlens scan <IP> --plain --output result.json
+  subnetlens scan <IP> --plain --output result.csv
+```
+
+`--output` always writes a file: JSON is a versioned document (subnet, timestamps, hosts with open ports, issues); CSV is one row per open port with a header. Files are replaced atomically on each run; quitting the TUI before the scan finishes skips the export.
+
+To stream to the terminal instead of saving anything, use `--output -` (stdout, requires `--format` since there is no extension to infer from):
+
+```bash
+  subnetlens scan <IP> --plain
+  subnetlens scan <IP> --plain --output - --format csv | head
+  subnetlens scan <IP> --output - --format csv
 ```
 
 ## Large scans
@@ -229,7 +243,7 @@ subnetlens /
 - [x] mDNS listening
 - [x] Add tests
 - [x] Scan profiles: `--all-alive`
-- [ ] JSON / CSV export (`--output result.json`)
+- [x] JSON / CSV export (`--output result.json`)
 - [x] UDP port scanning (Pro — private release)
 - [ ] GUI with interactive network node graph (Pro — planned)
 - [x] `subnetlens watch` — re-scan on interval, alert on changes (Pro — private release)
