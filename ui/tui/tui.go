@@ -144,10 +144,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// Run starts the TUI program.
-func Run(opts models.ScanOptions, socketBudget int, warnings []string) error {
+// Run starts the TUI program and returns the finished scan result, or nil
+// when the user quits before the scan completes.
+func Run(opts models.ScanOptions, socketBudget int, warnings []string) (*models.ScanResult, error) {
 	m := New(opts, socketBudget, warnings)
 	p := tea.NewProgram(m, tea.WithAltScreen())
-	_, err := p.Run()
-	return err
+	final, err := p.Run()
+	if err != nil {
+		return nil, err
+	}
+	if model, ok := final.(Model); ok {
+		return model.result, nil
+	}
+	return nil, nil
 }

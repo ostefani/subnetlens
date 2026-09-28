@@ -429,3 +429,18 @@ func makeHosts(count int) []*models.Host {
 	}
 	return hosts
 }
+
+func TestModelResultIsNilUntilScanCompletes(t *testing.T) {
+	m := New(models.ScanOptions{Subnet: "192.168.1.0/24"}, 64, nil)
+	if m.result != nil {
+		t.Fatal("expected no result before the scan completes")
+	}
+
+	updated, _ := m.Update(scanDoneMsg{
+		result:     &models.ScanResult{Subnet: "192.168.1.0/24"},
+		finalTotal: 1,
+	})
+	if got := updated.(Model).result; got == nil {
+		t.Fatal("expected the finished result to be retained for export")
+	}
+}
