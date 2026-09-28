@@ -57,7 +57,11 @@ var rootCmd = &cobra.Command{
 	Short: "subnetlens — fast local network port scanner & visualizer",
 	Long: `subnetlens discovers live hosts on your local network and scans their open ports.
 
+With no target (or "local"), the local subnet is detected automatically.
+
 Examples:
+  subnetlens scan
+  subnetlens scan local
   subnetlens scan 192.168.1.0/24
   subnetlens scan 10.0.0.0/24 --ports 22,80,443 --timeout 300
   subnetlens scan 192.168.1.5  --plain`,
@@ -66,8 +70,14 @@ Examples:
 var scanCmd = &cobra.Command{
 	Use:   "scan [subnet]",
 	Short: "Scan a subnet for live hosts and open ports",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runScan,
+	Long: `Scan a subnet for live hosts and open ports.
+
+With no target, or the keyword "local", the local subnet is detected
+automatically from the active network interfaces. An auto-detected subnet
+over the large-scan threshold narrows to the local /24 unless
+--allow-large-scan is given.`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runScan,
 }
 
 func init() {
@@ -93,6 +103,27 @@ func init() {
 		"Export format: json or csv (default: inferred from --output)")
 
 	rootCmd.AddCommand(scanCmd)
+}
+
+// autoScanTarget resolves the zero-config target. It is a variable so tests
+// can stub interface detection without touching the host network.
+var autoScanTarget = scanner.AutoScanTarget
+
+type resolvedTarget struct {
+	subnet       string
+	auto         bool
+	narrowedFrom string
+}
+
+func resolveScanTarget(args []string, allowLarge bool) (resolvedTarget, error) {
+	if len(args) == 0 || args[0] == scanner.LocalTargetKeyword {
+		subnet, narrowedFrom, err := autoScanTarget(allowLarge)
+		if err != nil {
+			return resolvedTarget{}, fmt.Errorf("could not determine the local subnet: %v; pass a target explicitly (e.g. subnetlens scan 192.168.1.0/24)", err)
+		}
+		return resolvedTarget{subnet: subnet, auto: true, narrowedFrom: narrowedFrom}, nil
+	}
+	return resolvedTarget{subnet: args[0]}, nil
 }
 
 // resolveExportFormat validates the export flags before any scanning starts.
@@ -133,7 +164,11 @@ func writeExport(path string, result *models.ScanResult, format export.Format) e
 }
 
 func runScan(cmd *cobra.Command, args []string) error {
-	subnet := args[0]
+	resolved, err := resolveScanTarget(args, flagAllowLargeScan)
+	if err != nil {
+		return err
+	}
+	subnet, auto := resolved.subnet, resolved.auto
 
 	exportFormat, err := resolveExportFormat(flagOutput, flagFormat)
 	if err != nil {
@@ -156,19 +191,26 @@ func runScan(cmd *cobra.Command, args []string) error {
 	if len(opts.Ports) == 0 {
 		opts.Ports = models.CommonPorts
 	}
-	// Fail fast before the TUI/plain runner starts. The engine re-validates
-	// consent itself, so library callers bypassing the CLI stay protected;
-	// expansion is a pure, cheap computation, so checking twice costs nothing.
-	// The consented-scan warning itself is emitted once, by the engine.
+
+	// Fail fast before the TUI/plain runner starts.
 	if _, err := scanner.CheckTargetConsent(subnet, opts); err != nil {
 		var confirmationErr *scanner.LargeScanConfirmationError
 		if errors.As(err, &confirmationErr) {
+			if auto {
+				return fmt.Errorf("auto-detected target %q expands to %d addresses (over the %d address confirmation threshold): pass a smaller target explicitly or re-run with --allow-large-scan", confirmationErr.Target, confirmationErr.Total, confirmationErr.Threshold)
+			}
 			return fmt.Errorf("target %q expands to %d addresses (over the %d address confirmation threshold): re-run with --allow-large-scan", confirmationErr.Target, confirmationErr.Total, confirmationErr.Threshold)
 		}
 		// Syntax errors keep the historical path: the engine reports them
 		// as scan issues instead of failing the command here.
 	}
 	opts, socketBudget, warnings := scanner.PrepareScanOptions(opts)
+	switch {
+	case resolved.narrowedFrom != "":
+		warnings = append([]string{fmt.Sprintf("Auto-detected %s is too large to scan without consent; scanning %s instead (pass an explicit target or --allow-large-scan for the full range).", resolved.narrowedFrom, subnet)}, warnings...)
+	case auto:
+		warnings = append([]string{fmt.Sprintf("No target given: auto-detected local subnet %s.", subnet)}, warnings...)
+	}
 
 	if flagPlain {
 		return runPlain(opts, socketBudget, warnings, flagOutput, exportFormat)
