@@ -168,8 +168,8 @@ With no target — `subnetlens scan` or `subnetlens scan local` — the local su
 - `--plain` Plain text output (no TUI)
 - `--all-alive` Show all discovered hosts, including those that respond with TCP connection errors.
 - `--allow-large-scan` Confirm scans expanding to more than 1024 addresses (see [Large scans](#large-scans))
-- `--output` string Write scan results to FILE (format from .json/.csv extension; `-` streams to stdout instead of saving)
-- `--format` string Export format: json or csv (default: inferred from --output)
+- `--output` string Save the scan report into DIR instead of `~/.subnetlens` (the file is named automatically; `-` prints to stdout)
+- `--format` string Report format: json or csv (required with `--output`; without `--output`, saves to `~/.subnetlens`)
 
 ## Platform Support
 
@@ -192,13 +192,13 @@ With no target — `subnetlens scan` or `subnetlens scan local` — the local su
   subnetlens scan <IP> --ports 22,80,443,8080
   subnetlens scan <IP> --plain --banners
   subnetlens scan <IP> --concurrency 100 --discovery-concurrency 400 --timeout 300
-  subnetlens scan <IP> --plain --output result.json
-  subnetlens scan <IP> --plain --output result.csv
+  subnetlens scan <IP> --format json
+  subnetlens scan <IP> --plain --output ~/Downloads/ --format csv
 ```
 
-`--output` always writes a file: JSON is a versioned document (subnet, timestamps, hosts with open ports, issues); CSV is one row per open port with a header. Files are replaced atomically on each run; quitting the TUI before the scan finishes skips the export.
+Scan reports are saved only when you ask for them. `--format json` (or `csv`) saves a timestamped report to `~/.subnetlens` (for example `scan-20260928-093000.json`); every run creates a new file, so past reports are kept and can be compared over time. On Windows this folder is `%USERPROFILE%\.subnetlens`. Pass `--output` with a folder to save somewhere else instead — the file is still named automatically. `--format` is required whenever `--output` is given. JSON is a versioned document (subnet, timestamps, hosts with open ports, issues); CSV is one row per open port with a header. Quitting the TUI before the scan finishes skips the export.
 
-To stream to the terminal instead of saving anything, use `--output -` (stdout, requires `--format` since there is no extension to infer from):
+To print to the terminal instead of saving a file, use `--output -` (stdout, requires `--format` since there is no extension to infer from):
 
 ```bash
   subnetlens scan <IP> --plain
@@ -247,7 +247,7 @@ subnetlens /
 - [x] mDNS listening
 - [x] Add tests
 - [x] Scan profiles: `--all-alive`
-- [x] JSON / CSV export (`--output result.json`)
+- [x] JSON / CSV export (`--format json`)
 - [x] UDP port scanning (Pro — private release)
 - [ ] GUI with interactive network node graph (Pro — planned)
 - [x] `subnetlens watch` — re-scan on interval, alert on changes (Pro — private release)

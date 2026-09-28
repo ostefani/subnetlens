@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -256,4 +257,133 @@ func TestCheckWritable(t *testing.T) {
 	if err := CheckWritable(filepath.Join(t.TempDir(), "nope", "out.json")); err == nil {
 		t.Fatal("expected a missing directory to fail")
 	}
+}
+
+func stubExportClock(t *testing.T, fixed time.Time) {
+	t.Helper()
+	old := timeNow
+	timeNow = func() time.Time { return fixed }
+	t.Cleanup(func() { timeNow = old })
+}
+
+func stubExportHome(t *testing.T, home string) {
+	t.Helper()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+}
+
+func TestDefaultExportPath(t *testing.T) {
+	home := t.TempDir()
+	stubExportHome(t, home)
+	stubExportClock(t, time.Date(2026, time.September, 28, 9, 30, 0, 0, time.UTC))
+
+	path, err := DefaultExportPath(".subnetlens", FormatJSON)
+	if err != nil {
+		t.Fatalf("DefaultExportPath: %v", err)
+	}
+	want := filepath.Join(home, ".subnetlens", "scan-20260928-093000.json")
+	if path != want {
+		t.Fatalf("expected %q, got %q", want, path)
+	}
+	if info, err := os.Stat(filepath.Join(home, ".subnetlens")); err != nil || !info.IsDir() {
+		t.Fatalf("expected the export directory to be created: %v", err)
+	}
+}
+
+func TestDefaultExportPathDisambiguatesReruns(t *testing.T) {
+	home := t.TempDir()
+	stubExportHome(t, home)
+	stubExportClock(t, time.Date(2026, time.September, 28, 9, 30, 0, 0, time.UTC))
+
+	first, err := DefaultExportPath(".subnetlens", FormatCSV)
+	if err != nil {
+		t.Fatalf("DefaultExportPath: %v", err)
+	}
+	if err := os.WriteFile(first, []byte("first"), 0o644); err != nil {
+		t.Fatalf("seed first export: %v", err)
+	}
+	second, err := DefaultExportPath(".subnetlens", FormatCSV)
+	if err != nil {
+		t.Fatalf("DefaultExportPath rerun: %v", err)
+	}
+	want := filepath.Join(home, ".subnetlens", "scan-20260928-093000-2.csv")
+	if second != want {
+		t.Fatalf("expected %q, got %q", want, second)
+	}
+}
+
+func TestDefaultExportPathRejectsUnknownFormat(t *testing.T) {
+	stubExportHome(t, t.TempDir())
+	if _, err := DefaultExportPath(".subnetlens", Format("yaml")); err == nil {
+		t.Fatal("expected an error for an unknown format")
+	}
+}
+
+func TestTimestampedExportPath(t *testing.T) {
+	dir := t.TempDir()
+	stubExportClock(t, time.Date(2026, time.September, 28, 9, 30, 0, 0, time.UTC))
+
+	first, err := TimestampedExportPath(dir, FormatJSON)
+	if err != nil {
+		t.Fatalf("TimestampedExportPath: %v", err)
+	}
+	want := filepath.Join(dir, "scan-20260928-093000.json")
+	if first != want {
+		t.Fatalf("expected %q, got %q", want, first)
+	}
+	if err := os.WriteFile(first, []byte("first"), 0o644); err != nil {
+		t.Fatalf("seed first export: %v", err)
+	}
+	second, err := TimestampedExportPath(dir, FormatJSON)
+	if err != nil {
+		t.Fatalf("TimestampedExportPath rerun: %v", err)
+	}
+	wantSecond := filepath.Join(dir, "scan-20260928-093000-2.json")
+	if second != wantSecond {
+		t.Fatalf("expected %q, got %q", wantSecond, second)
+	}
+}
+
+func TestTimestampedExportPathRejectsUnknownFormat(t *testing.T) {
+	if _, err := TimestampedExportPath(t.TempDir(), Format("yaml")); err == nil {
+		t.Fatal("expected an error for an unknown format")
+	}
+}
+
+func TestDefaultExportPathFallsBackToWorkingDirectory(t *testing.T) {
+	stubExportClock(t, time.Date(2026, time.September, 28, 9, 30, 0, 0, time.UTC))
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get working directory: %v", err)
+	}
+	want := filepath.Join(cwd, "scan-20260928-093000.json")
+
+	t.Run("unusable home directory", func(t *testing.T) {
+		blocker := filepath.Join(t.TempDir(), "blocker")
+		if err := os.WriteFile(blocker, []byte("not a dir"), 0o644); err != nil {
+			t.Fatalf("seed blocker file: %v", err)
+		}
+		stubExportHome(t, blocker)
+		path, err := DefaultExportPath(".subnetlens", FormatJSON)
+		if err != nil {
+			t.Fatalf("DefaultExportPath: %v", err)
+		}
+		if path != want {
+			t.Fatalf("expected %q, got %q", want, path)
+		}
+	})
+
+	t.Run("unset home directory", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("Windows resolves the home directory from multiple variables")
+		}
+		stubExportHome(t, "")
+		path, err := DefaultExportPath(".subnetlens", FormatJSON)
+		if err != nil {
+			t.Fatalf("DefaultExportPath: %v", err)
+		}
+		if path != want {
+			t.Fatalf("expected %q, got %q", want, path)
+		}
+	})
 }

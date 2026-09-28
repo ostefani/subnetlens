@@ -263,6 +263,62 @@ func CheckWritable(path string) error {
 	return os.Remove(name)
 }
 
+// timeNow reports the current time. It is a variable so tests can pin the
+// clock when asserting timestamped export names.
+var timeNow = time.Now
+
+// TimestampedExportPath returns a fresh scan-<timestamp>.<ext> path inside
+// dir (e.g. dir/scan-20260928-093000.json). Each call picks a name that does
+// not exist yet (a -2, -3, ... suffix disambiguates reruns within the same
+// second), so exports accumulate instead of replacing each other.
+//
+// Two scans resolving a name concurrently within the same second may still
+// pick the same candidate; the check-then-write gap only closes for
+// sequential runs, which is all interactive and scheduled use needs.
+func TimestampedExportPath(dir string, format Format) (string, error) {
+	switch format {
+	case FormatJSON, FormatCSV:
+	default:
+		return "", fmt.Errorf("unsupported export format %q", format)
+	}
+	base := "scan-" + timeNow().Format("20060102-150405")
+	ext := "." + string(format)
+	candidate := filepath.Join(dir, base+ext)
+	for i := 2; i < 1000; i++ {
+		if _, err := os.Stat(candidate); os.IsNotExist(err) {
+			return candidate, nil
+		}
+		candidate = filepath.Join(dir, fmt.Sprintf("%s-%d%s", base, i, ext))
+	}
+	return "", fmt.Errorf("cannot pick a free export name in %q: too many clashes", dir)
+}
+
+// DefaultExportPath returns a fresh timestamped export path inside the
+// per-user directory $HOME/appDir (created when missing). When the home
+// directory is unavailable or unusable (minimal containers, read-only
+// homes), the current directory is used instead; the caller announces the
+// resolved path, so the file is never a surprise.
+func DefaultExportPath(appDir string, format Format) (string, error) {
+	dir, err := userExportDir(appDir)
+	if err != nil {
+		return "", err
+	}
+	return TimestampedExportPath(dir, format)
+}
+
+// userExportDir ensures the per-user export directory exists and returns it.
+// A missing or unusable home falls back to the current directory so exports
+// keep working where $HOME is unset or read-only.
+func userExportDir(appDir string) (string, error) {
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		dir := filepath.Join(home, appDir)
+		if err := os.MkdirAll(dir, 0o755); err == nil {
+			return dir, nil
+		}
+	}
+	return os.Getwd()
+}
+
 // WriteFile writes the export atomically: the content lands in a temporary
 // sibling file first and is renamed over the destination, so a crash or
 // interrupt never leaves a half-written export behind. An existing file is
