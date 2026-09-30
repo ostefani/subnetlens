@@ -9,6 +9,8 @@
 ![Interface](https://img.shields.io/badge/type-TUI-informational)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
+**Not affiliated with subnetlens.com. This project (github.com/ostefani/subnetlens) is an independent open-source tool, first released in March 2026 under the MIT license and developed by Olha Stefanishyna. It has no affiliation with, and is not endorsed by, the website subnetlens.com or any software sold there. The only official source code and releases are in this repository. The official SubnetLens Pro is available only from [official Pro link](https://ostefani.github.io/subnetlens/).**
+
 _**Key Rotation Note:** New signature keys effective Sep 16, 2026. Legacy keys are no longer active on this profile. Commits signed before that date may appear Unverified as a result of the rotation._
 
 A fast, concurrent network scanner with a TUI and plain-text CLI, built in Go.
@@ -249,7 +251,7 @@ subnetlens /
 - [x] Scan profiles: `--all-alive`
 - [x] JSON / CSV export (`--format json`)
 - [x] UDP port scanning (Pro — private release)
-- [ ] GUI with interactive network node graph (Pro — planned)
+- [ ] GUI with interactive network node graph (Pro)
 - [x] `subnetlens watch` — re-scan on interval, alert on changes (Pro — private release)
 
 ## Contributing
