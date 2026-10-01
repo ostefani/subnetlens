@@ -9,21 +9,20 @@
 ![Interface](https://img.shields.io/badge/type-TUI-informational)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
+A fast, concurrent open-source network scanner with a TUI and plain-text CLI, built in Go.
+
+Website: <https://ostefani.github.io/subnetlens/> — Core vs Pro comparison.
 
 > 📌
 > 
 > **Not affiliated with subnetlens.com. This project (github.com/ostefani/subnetlens) is an independent open-source tool, first released in March 2026 under the MIT license and developed by Olha Stefanishyna. It has no affiliation with, and is not endorsed by, the website subnetlens.com or any software sold there. The only official source code and releases are in this repository.**
 >
->**The official SubnetLens Pro is available only from [official Pro link](https://ostefani.github.io/subnetlens/).**
+>**Learn more about official SubnetLens Pro at [GitHub Pages](https://ostefani.github.io/subnetlens/).**
 > 
 > 📌
 
 
 _**Key Rotation Note:** New signature keys effective Sep 16, 2026. Legacy keys are no longer active on this profile. Commits signed before that date may appear Unverified as a result of the rotation._
-
-A fast, concurrent network scanner with a TUI and plain-text CLI, built in Go.
-
-🌐 Website: <https://ostefani.github.io/subnetlens/> — Core vs Pro comparison and install guide.
 
 Supports multiple discovery methods:
 
@@ -55,7 +54,7 @@ If you need to refresh it, download the latest CSV from the link above and repla
 
 ## Quick Start
 
-Clone the repository to build from source, or see [Install a built binary](#install-a-built-binary) to use a precompiled binary.
+Clone the repository to build from source, see [Install a built binary](#install-a-built-binary) or use a precompiled binary. Pay attention that bynaries attached to the release are not signed, so MacOS and Windows will complain about it. If you don't want to see the warnings [build from source](#install-a-built-binary).
 
 **Note:** On macOS and Linux, run with `sudo` to enable ARP and ICMP. On Windows, run the terminal as Administrator. TCP scan requires no elevated privileges.
 
