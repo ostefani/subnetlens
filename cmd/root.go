@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -28,6 +29,8 @@ var (
 	flagAllowLargeScan       bool
 	flagOutput               string
 	flagFormat               string
+	flagSort                 string
+	flagFilter               string
 )
 
 var (
@@ -101,6 +104,10 @@ func init() {
 		"Save the scan report into DIR instead of ~/.subnetlens (the file is named automatically; - prints to stdout)")
 	scanCmd.Flags().StringVar(&flagFormat, "format", "",
 		"Report format: json or csv (required with --output; without --output, saves to ~/.subnetlens)")
+	scanCmd.Flags().StringVar(&flagSort, "sort", scanner.SortDiscovery,
+		"Host listing order: discovery, ip, latency, vendor, hostname (--plain prints sorted output when the scan completes)")
+	scanCmd.Flags().StringVar(&flagFilter, "filter", "",
+		`Only show hosts matching EXPR, e.g. "port:22,os:linux" (keys: ip, host, mac, vendor, os, device, service, port, weak, alive, source; comma = AND, repeated key = OR; --plain prints matches when the scan completes)`)
 
 	rootCmd.AddCommand(scanCmd)
 }
@@ -206,6 +213,17 @@ func runScan(cmd *cobra.Command, args []string) error {
 		ignoreSigpipeOnClosedStdout()
 	}
 
+	// Listing options fail fast like export flags: a typo must never waste
+	// a full scan or silently narrow its output.
+	sortOrder, err := scanner.NormalizeSortOrder(flagSort)
+	if err != nil {
+		return err
+	}
+	filter, err := scanner.ParseHostFilter(flagFilter)
+	if err != nil {
+		return err
+	}
+
 	opts := models.ScanOptions{
 		Subnet:               subnet,
 		Ports:                flagPorts,
@@ -215,6 +233,8 @@ func runScan(cmd *cobra.Command, args []string) error {
 		GrabBanners:          flagBanners,
 		AllAlive:             flagAllAlive,
 		AllowLargeScan:       flagAllowLargeScan,
+		Sort:                 sortOrder,
+		Filter:               strings.TrimSpace(flagFilter),
 	}
 	if len(opts.Ports) == 0 {
 		opts.Ports = models.CommonPorts
@@ -239,9 +259,12 @@ func runScan(cmd *cobra.Command, args []string) error {
 	case auto:
 		warnings = append([]string{fmt.Sprintf("No target given: auto-detected local subnet %s.", subnet)}, warnings...)
 	}
+	if flagPlain && (sortOrder != scanner.SortDiscovery || filter != nil) {
+		warnings = append(warnings, "sort/filter active: matching hosts print when the scan completes.")
+	}
 
 	if flagPlain {
-		return runPlain(opts, socketBudget, warnings, exportPath, exportFormat)
+		return runPlain(opts, socketBudget, warnings, exportPath, exportFormat, filter)
 	}
 
 	result, err := tui.Run(opts, socketBudget, warnings)
@@ -276,10 +299,14 @@ func exportScanResult(path string, result *models.ScanResult, format export.Form
 // runPlain outputs results as plain text — useful for scripting / CI pipelines.
 // When exportPath is set the scan result is also written in exportFormat; when
 // exportPath is "-", human-readable stdout is suppressed so the pipe stays clean.
-func runPlain(opts models.ScanOptions, socketBudget int, warnings []string, exportPath string, exportFormat export.Format) error {
+// Without --sort/--filter hosts stream as they complete; with either flag the
+// output is buffered so the final listing is complete, filtered, and ordered.
+// Exports always carry the full unfiltered result.
+func runPlain(opts models.ScanOptions, socketBudget int, warnings []string, exportPath string, exportFormat export.Format, filter *scanner.HostFilter) error {
 	printWarnings(warnings)
 	human := exportPath != "-"
 	local := scanner.LocalDiscoveryInfoForTarget(opts.Subnet)
+	buffered := scanner.DefaultSortOrder(opts.Sort) != scanner.SortDiscovery || filter != nil
 	if human {
 		fmt.Fprintf(os.Stdout, "Scanning %s ...\n\n", opts.Subnet)
 		printPlainLocalMachine(local)
@@ -312,7 +339,9 @@ func runPlain(opts models.ScanOptions, socketBudget int, warnings []string, expo
 			pending[snapshot.IP] = snapshot
 
 			// Each update refreshes the buffered snapshot for host.
-			if printed[snapshot.IP] || !plainHostReady(snapshot) {
+			// Buffered (sorted/filtered) listings skip streaming: they print
+			// once from the finished result instead.
+			if buffered || printed[snapshot.IP] || !plainHostReady(snapshot) {
 				mu.Unlock()
 				return
 			}
@@ -344,16 +373,47 @@ func runPlain(opts models.ScanOptions, socketBudget int, warnings []string, expo
 	mu.Unlock()
 
 	if human {
-		for _, snapshot := range deferred {
+		shown := deferred
+		if buffered {
+			shown = finalPlainSnapshots(result, local, filter)
+			scanner.SortSnapshots(shown, opts.Sort)
+		}
+		for _, snapshot := range shown {
 			printPlainHost(snapshot)
 		}
 
 		fmt.Printf("\n─────────────────────────────────────────\n")
 		fmt.Printf("Scan complete in %s\n", result.Duration().Round(time.Millisecond))
-		fmt.Printf("%d host(s) found on %s\n", len(result.AliveHosts()), opts.Subnet)
+		if filter != nil {
+			fmt.Printf("%d host(s) shown (%d alive on %s)\n", len(shown), len(result.AliveHosts()), opts.Subnet)
+		} else {
+			fmt.Printf("%d host(s) found on %s\n", len(result.AliveHosts()), opts.Subnet)
+		}
 	}
 
 	return exportScanResult(exportPath, result, exportFormat)
+}
+
+// finalPlainSnapshots collects end-of-scan snapshots for buffered (sorted or
+// filtered) plain output. Like the streaming path it hides the local machine,
+// which already has its own header box; unlike it, the set is complete, so
+// filters judge final port/vendor state instead of mid-scan partials.
+func finalPlainSnapshots(result *models.ScanResult, local scanner.LocalDiscoveryInfo, filter *scanner.HostFilter) []models.HostSnapshot {
+	if result == nil {
+		return nil
+	}
+	snapshots := make([]models.HostSnapshot, 0, len(result.Hosts))
+	for _, host := range result.Hosts {
+		if host == nil {
+			continue
+		}
+		snapshot := host.Snapshot()
+		if local.InScanRange && local.IP != "" && snapshot.IP == local.IP {
+			continue
+		}
+		snapshots = append(snapshots, snapshot)
+	}
+	return filter.FilterSnapshots(snapshots)
 }
 
 func printWarnings(warnings []string) {

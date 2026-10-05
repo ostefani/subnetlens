@@ -2,6 +2,8 @@
 package tui
 
 import (
+	"strings"
+
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/ostefani/subnetlens/models"
@@ -49,9 +51,33 @@ type Model struct {
 	windowWidth  int
 	windowHeight int
 	tableOffset  int
+	selected     int
+
+	detailOpen   bool
+	detailIP     string
+	detailOffset int
+
+	sortOrder       string
+	hideWeak        bool
+	hideNoOpenPorts bool
+	filter          *scanner.HostFilter
+	filterExpr      string
 }
 
 func New(opts models.ScanOptions, socketBudget int, warnings []string) Model {
+	// The CLI validates --sort/--filter strictly before the TUI starts; here
+	// invalid values degrade to the unfiltered discovery listing instead of
+	// failing a run that already passed validation.
+	sortOrder := scanner.DefaultSortOrder(opts.Sort)
+	filterExpr := strings.TrimSpace(opts.Filter)
+	var filter *scanner.HostFilter
+	if filterExpr != "" {
+		if parsed, err := scanner.ParseHostFilter(filterExpr); err == nil {
+			filter = parsed
+		} else {
+			filterExpr = ""
+		}
+	}
 	return Model{
 		opts:         opts,
 		socketBudget: socketBudget,
@@ -64,6 +90,9 @@ func New(opts models.ScanOptions, socketBudget int, warnings []string) Model {
 		hostIndex:    make(map[string]int),
 		windowWidth:  defaultWindowWidth,
 		windowHeight: defaultWindowHeight,
+		sortOrder:    sortOrder,
+		filter:       filter,
+		filterExpr:   filterExpr,
 	}
 }
 
@@ -81,21 +110,41 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if m.detailOpen {
+			return m.updateDetailKey(msg)
+		}
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "enter":
+			m.openDetail()
 		case "up", "k":
-			m.scrollTable(-1)
+			m.moveSelection(-1)
 		case "down", "j":
-			m.scrollTable(1)
+			m.moveSelection(1)
 		case "pgup", "b":
-			m.scrollTable(-m.tablePageStep())
+			m.moveSelection(-m.tablePageStep())
 		case "pgdown", " ":
-			m.scrollTable(m.tablePageStep())
+			m.moveSelection(m.tablePageStep())
 		case "home", "g":
-			m.setTableOffset(0)
+			m.moveSelectionTo(0)
 		case "end", "G":
-			m.setTableOffset(m.maxTableOffset())
+			m.moveSelectionTo(len(m.visibleHosts()) - 1)
+		case "s":
+			m.sortOrder = scanner.NextSortOrder(m.sortOrder)
+			m.refreshListing()
+		case "w":
+			m.hideWeak = !m.hideWeak
+			m.refreshListing()
+		case "o":
+			m.hideNoOpenPorts = !m.hideNoOpenPorts
+			m.refreshListing()
+		case "c":
+			m.hideWeak = false
+			m.hideNoOpenPorts = false
+			m.filter = nil
+			m.filterExpr = ""
+			m.refreshListing()
 		}
 		return m, nil
 
@@ -103,6 +152,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.windowWidth = msg.Width
 		m.windowHeight = msg.Height
 		m.clampTableOffset()
+		m.ensureSelectedVisible()
 		m.invalidateTableCache()
 		return m, nil
 

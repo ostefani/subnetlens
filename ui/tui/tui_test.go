@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/ostefani/subnetlens/models"
 	"github.com/ostefani/subnetlens/scanner"
@@ -428,6 +429,213 @@ func makeHosts(count int) []*models.Host {
 		hosts = append(hosts, models.NewHost("192.168.1."+strconv.Itoa(i)))
 	}
 	return hosts
+}
+
+func pressKey(t *testing.T, m Model, key rune) Model {
+	t.Helper()
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{key}})
+	model, ok := updated.(Model)
+	if !ok {
+		t.Fatalf("expected Update to return a Model, got %T", updated)
+	}
+	return model
+}
+
+func visibleIPs(hosts []*models.Host) []string {
+	ips := make([]string, 0, len(hosts))
+	for _, host := range hosts {
+		if host == nil {
+			continue
+		}
+		ips = append(ips, host.IP())
+	}
+	return ips
+}
+
+func TestSortKeyCyclesOrderAndReordersHosts(t *testing.T) {
+	m := Model{hostIndex: make(map[string]int)}
+	m.applyHostBatch([]*models.Host{
+		models.NewHost("192.168.1.30"),
+		models.NewHost("192.168.1.2"),
+	})
+
+	if got := visibleIPs(m.visibleHosts()); len(got) != 2 || got[0] != "192.168.1.30" {
+		t.Fatalf("expected arrival order first, got %v", got)
+	}
+
+	m = pressKey(t, m, 's')
+	if m.sortOrder != scanner.SortIP {
+		t.Fatalf("expected sort order ip after one press, got %q", m.sortOrder)
+	}
+	if got := visibleIPs(m.visibleHosts()); len(got) != 2 || got[0] != "192.168.1.2" {
+		t.Fatalf("expected numeric IP order, got %v", got)
+	}
+
+	for range len(scanner.SortOrders) - 1 {
+		m = pressKey(t, m, 's')
+	}
+	if m.sortOrder != scanner.SortDiscovery {
+		t.Fatalf("expected the cycle to return to discovery, got %q", m.sortOrder)
+	}
+	if got := visibleIPs(m.visibleHosts()); len(got) != 2 || got[0] != "192.168.1.30" {
+		t.Fatalf("expected arrival order restored, got %v", got)
+	}
+	// The backing store keeps arrival order throughout: sorting must never
+	// mutate it.
+	if m.hosts[0].IP() != "192.168.1.30" {
+		t.Fatalf("expected m.hosts to keep arrival order, got %v", visibleIPs(m.hosts))
+	}
+}
+
+func TestWeakToggleHidesWeakHosts(t *testing.T) {
+	strong := models.NewHost("192.168.1.10")
+	strong.ObserveLiveness(true, false, models.HostSourceTCP, time.Time{}, time.Time{})
+	weak := models.NewHost("192.168.1.11")
+	weak.ObserveLiveness(true, true, models.HostSourceARP, time.Time{}, time.Time{})
+
+	m := Model{hostIndex: make(map[string]int)}
+	m.applyHostBatch([]*models.Host{strong, weak})
+	if got := len(m.visibleHosts()); got != 2 {
+		t.Fatalf("expected both hosts visible before the toggle, got %d", got)
+	}
+
+	m = pressKey(t, m, 'w')
+	visible := m.visibleHosts()
+	if len(visible) != 1 || visible[0].IP() != "192.168.1.10" {
+		t.Fatalf("expected only the strong host visible, got %v", visibleIPs(visible))
+	}
+
+	m = pressKey(t, m, 'w')
+	if got := len(m.visibleHosts()); got != 2 {
+		t.Fatalf("expected the toggle to restore both hosts, got %d", got)
+	}
+}
+
+func TestNoOpenPortsToggleHidesPortlessHosts(t *testing.T) {
+	withPort := models.NewHost("192.168.1.10")
+	withPort.SetProtocolPortsAndMarkAlive("tcp", []models.Port{
+		{Number: 22, Protocol: "tcp", State: models.PortOpen, Service: "SSH"},
+	})
+	portless := models.NewHost("192.168.1.11")
+
+	m := Model{hostIndex: make(map[string]int)}
+	m.applyHostBatch([]*models.Host{withPort, portless})
+
+	m = pressKey(t, m, 'o')
+	visible := m.visibleHosts()
+	if len(visible) != 1 || visible[0].IP() != "192.168.1.10" {
+		t.Fatalf("expected only the host with open ports, got %v", visibleIPs(visible))
+	}
+}
+
+func TestNewSeedsSortAndFilterFromOptions(t *testing.T) {
+	// TEST-NET-2 is never a local interface, so no local-machine filtering
+	// can interfere with the listing assertions.
+	m := New(models.ScanOptions{
+		Subnet: "198.51.100.0/24",
+		Sort:   "ip",
+		Filter: "port:22",
+	}, 64, nil)
+	if m.sortOrder != scanner.SortIP {
+		t.Fatalf("expected sort order ip, got %q", m.sortOrder)
+	}
+	if m.filter == nil || m.filterExpr != "port:22" {
+		t.Fatalf("expected the port:22 filter to be seeded, got expr %q", m.filterExpr)
+	}
+
+	withPort := models.NewHost("198.51.100.30")
+	withPort.SetProtocolPortsAndMarkAlive("tcp", []models.Port{
+		{Number: 22, Protocol: "tcp", State: models.PortOpen, Service: "SSH"},
+	})
+	other := models.NewHost("198.51.100.2")
+	other.SetProtocolPortsAndMarkAlive("tcp", []models.Port{
+		{Number: 80, Protocol: "tcp", State: models.PortOpen, Service: "HTTP"},
+	})
+	m.applyHostBatch([]*models.Host{withPort, other})
+	if got := visibleIPs(m.visibleHosts()); len(got) != 1 || got[0] != "198.51.100.30" {
+		t.Fatalf("expected only the filtered host visible, got %v", got)
+	}
+
+	m = pressKey(t, m, 'c')
+	if m.filter != nil || m.filterExpr != "" || m.hideWeak || m.hideNoOpenPorts {
+		t.Fatal("expected c to clear the filter expression and all toggles")
+	}
+	if m.sortOrder != scanner.SortIP {
+		t.Fatalf("expected c to keep the sort order, got %q", m.sortOrder)
+	}
+	if got := visibleIPs(m.visibleHosts()); len(got) != 2 {
+		t.Fatalf("expected both hosts visible after clear, got %v", got)
+	}
+}
+
+func TestRenderListingStatusSummarizesState(t *testing.T) {
+	m := Model{
+		hosts:           makeHosts(3),
+		sortOrder:       scanner.SortIP,
+		hideWeak:        true,
+		filterExpr:      "port:22",
+		hostIndex:       make(map[string]int),
+		tableCache:      &tableRenderCache{dirty: true},
+		windowWidth:     120,
+		windowHeight:    32,
+		hideNoOpenPorts: false,
+	}
+	status := ansi.Strip(m.renderListingStatus(1))
+	for _, want := range []string{"sort: ip", "hide: weak", "filter: port:22", "1/3 shown", "s sort"} {
+		if !strings.Contains(status, want) {
+			t.Fatalf("expected status to contain %q, got %q", want, status)
+		}
+	}
+
+	plain := Model{hosts: makeHosts(2)}
+	status = ansi.Strip(plain.renderListingStatus(2))
+	if !strings.Contains(status, "sort: discovery") {
+		t.Fatalf("expected default sort in status, got %q", status)
+	}
+	if strings.Contains(status, "shown") {
+		t.Fatalf("expected no fraction when nothing is filtered, got %q", status)
+	}
+}
+
+func TestViewShowsSortedFilteredListing(t *testing.T) {
+	cisco := models.NewHost("198.51.100.30")
+	cisco.SetVendor("cisco")
+	cisco.ObserveLiveness(true, false, models.HostSourceTCP, time.Time{}, time.Time{})
+	cisco.SetProtocolPortsAndMarkAlive("tcp", []models.Port{
+		{Number: 22, Protocol: "tcp", State: models.PortOpen, Service: "SSH"},
+	})
+	apple := models.NewHost("198.51.100.2")
+	apple.SetVendor("Apple")
+	apple.ObserveLiveness(true, false, models.HostSourceTCP, time.Time{}, time.Time{})
+	apple.SetProtocolPortsAndMarkAlive("tcp", []models.Port{
+		{Number: 80, Protocol: "tcp", State: models.PortOpen, Service: "HTTP"},
+	})
+	weak := models.NewHost("198.51.100.10")
+	weak.ObserveLiveness(true, true, models.HostSourceARP, time.Time{}, time.Time{})
+
+	m := Model{hostIndex: make(map[string]int)}
+	m.applyHostBatch([]*models.Host{cisco, apple, weak})
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 32})
+	m = updated.(Model)
+
+	m = pressKey(t, m, 's') // discovery -> ip
+	m = pressKey(t, m, 'w') // hide weak
+	view := ansi.Strip(m.View())
+	t.Logf("rendered view:\n%s", view)
+
+	pos2 := strings.Index(view, "198.51.100.2")
+	pos30 := strings.Index(view, "198.51.100.30")
+	if pos2 < 0 || pos30 < 0 || pos2 > pos30 {
+		t.Fatalf("expected .2 before .30 in the rendered table, got:\n%s", view)
+	}
+	if strings.Contains(view, "198.51.100.10") {
+		t.Fatalf("expected the weak host to be hidden from the rendered table, got:\n%s", view)
+	}
+	for _, want := range []string{"sort: ip", "hide: weak", "2/3 shown", "s sort"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected rendered view to contain %q, got:\n%s", want, view)
+		}
+	}
 }
 
 func TestModelResultIsNilUntilScanCompletes(t *testing.T) {

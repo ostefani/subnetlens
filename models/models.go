@@ -132,6 +132,55 @@ type livenessObservation struct {
 	expiresAt time.Time
 }
 
+// HostLiveness is a point-in-time, per-source liveness observation: weak
+// marks low-confidence evidence (e.g. ARP alone), strong (weak=false) marks
+// confirming evidence (e.g. a completed TCP handshake).
+type HostLiveness struct {
+	Source HostSource
+	Weak   bool
+}
+
+// LivenessBySource returns the unexpired per-source liveness observations
+// sorted by source name. It returns nil when nothing was observed.
+func (h *Host) LivenessBySource() []HostLiveness {
+	if h == nil {
+		return nil
+	}
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	if len(h.livenessBySource) == 0 {
+		return nil
+	}
+
+	now := time.Now()
+	observations := make([]HostLiveness, 0, len(h.livenessBySource))
+	for source, observation := range h.livenessBySource {
+		if !observation.alive {
+			continue
+		}
+		if !observation.expiresAt.IsZero() && now.After(observation.expiresAt) {
+			continue
+		}
+		observations = append(observations, HostLiveness{Source: source, Weak: observation.weak})
+	}
+	if len(observations) == 0 {
+		return nil
+	}
+	slices.SortFunc(observations, func(a, b HostLiveness) int {
+		switch {
+		case a.Source < b.Source:
+			return -1
+		case a.Source > b.Source:
+			return 1
+		default:
+			return 0
+		}
+	})
+	return observations
+}
+
 type HostSnapshot struct {
 	IP            string
 	Hostname      string
@@ -971,6 +1020,12 @@ type ScanOptions struct {
 	AllAlive             bool
 	// AllowLargeScan permits scans exceeding the large-scan confirmation threshold.
 	AllowLargeScan bool
+	// Sort selects the host listing order (see scanner.SortOrders).
+	// "" means discovery (arrival) order.
+	Sort string
+	// Filter is a raw host filter expression (see scanner.ParseHostFilter).
+	// "" means no filtering.
+	Filter string
 }
 
 const DefaultConcurrency = 100

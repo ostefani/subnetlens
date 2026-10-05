@@ -15,6 +15,7 @@ import (
 
 	"github.com/ostefani/subnetlens/export"
 	"github.com/ostefani/subnetlens/models"
+	"github.com/ostefani/subnetlens/scanner"
 )
 
 func TestRunScanRefusesLargeTargetWithoutFlag(t *testing.T) {
@@ -373,6 +374,59 @@ func TestResolveScanTargetPassesExplicitTargetThrough(t *testing.T) {
 	}
 	if resolved.auto || resolved.subnet != "192.168.1.0/24" || resolved.narrowedFrom != "" {
 		t.Fatalf("expected plain passthrough of 192.168.1.0/24, got %+v", resolved)
+	}
+}
+
+func TestRunScanRejectsInvalidSortBeforeScanning(t *testing.T) {
+	prev := flagSort
+	flagSort = "bogus"
+	t.Cleanup(func() { flagSort = prev })
+
+	err := runScan(nil, []string{"192.168.1.0/24"})
+	if err == nil || !strings.Contains(err.Error(), "invalid --sort") {
+		t.Fatalf("expected an invalid --sort error before any scan, got %v", err)
+	}
+}
+
+func TestRunScanRejectsInvalidFilterBeforeScanning(t *testing.T) {
+	prev := flagFilter
+	flagFilter = "bogus:x"
+	t.Cleanup(func() { flagFilter = prev })
+
+	err := runScan(nil, []string{"192.168.1.0/24"})
+	if err == nil || !strings.Contains(err.Error(), "invalid --filter") {
+		t.Fatalf("expected an invalid --filter error before any scan, got %v", err)
+	}
+}
+
+func TestFinalPlainSnapshotsSkipsLocalMachineAndAppliesFilter(t *testing.T) {
+	local := models.NewHost("192.168.1.5")
+	remote := models.NewHost("192.168.1.10")
+	remote.SetProtocolPortsAndMarkAlive("tcp", []models.Port{
+		{Number: 22, Protocol: "tcp", State: models.PortOpen, Service: "SSH"},
+	})
+	other := models.NewHost("192.168.1.11")
+	other.SetProtocolPortsAndMarkAlive("tcp", []models.Port{
+		{Number: 80, Protocol: "tcp", State: models.PortOpen, Service: "HTTP"},
+	})
+	result := &models.ScanResult{
+		Subnet: "192.168.1.0/24",
+		Hosts:  []*models.Host{local, remote, other, nil},
+	}
+	info := scanner.LocalDiscoveryInfo{InScanRange: true, IP: "192.168.1.5"}
+
+	filter, err := scanner.ParseHostFilter("port:22")
+	if err != nil {
+		t.Fatalf("parse filter: %v", err)
+	}
+	got := finalPlainSnapshots(result, info, filter)
+	if len(got) != 1 || got[0].IP != "192.168.1.10" {
+		t.Fatalf("expected only the port-22 remote host, got %v", got)
+	}
+
+	unfiltered := finalPlainSnapshots(result, info, nil)
+	if len(unfiltered) != 2 {
+		t.Fatalf("expected local machine (only) skipped without a filter, got %d snapshots", len(unfiltered))
 	}
 }
 
