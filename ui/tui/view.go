@@ -192,12 +192,13 @@ func (m Model) renderHostTableSection(visibleHosts []*models.Host, viewport tabl
 		tableBlock := renderHostTable(pageHosts, viewport.width)
 		footnote := renderRandomizedMACFootnote(pageHosts)
 		status := renderHostTableStatus(len(visibleHosts), viewport.start, viewport.end)
+		listing := m.renderListingStatus(len(visibleHosts))
 
 		cache.width = viewport.width
 		cache.start = viewport.start
 		cache.end = viewport.end
 		cache.total = len(visibleHosts)
-		cache.rendered = joinLines(tableBlock, footnote, status)
+		cache.rendered = joinLines(tableBlock, footnote, status, listing)
 		cache.dirty = false
 	}
 
@@ -324,6 +325,32 @@ func renderHostTableStatus(total, start, end int) string {
 		end,
 		total,
 	))
+}
+
+// renderListingStatus summarizes the active sort/filter state. It always
+// renders while hosts are visible so the sort and filter keys stay
+// discoverable; the shown/total fraction only appears when listing filters
+// (not local-machine hiding) actually narrow the set.
+func (m Model) renderListingStatus(visibleTotal int) string {
+	parts := []string{"sort: " + scanner.DefaultSortOrder(m.sortOrder)}
+	var hidden []string
+	if m.hideWeak {
+		hidden = append(hidden, "weak")
+	}
+	if m.hideNoOpenPorts {
+		hidden = append(hidden, "no-open-ports")
+	}
+	if len(hidden) > 0 {
+		parts = append(parts, "hide: "+strings.Join(hidden, ", "))
+	}
+	if m.filterExpr != "" {
+		parts = append(parts, "filter: "+m.filterExpr)
+	}
+	if all := len(filterVisibleHosts(m.hosts, m.local)); visibleTotal != all {
+		parts = append(parts, fmt.Sprintf("%d/%d shown", visibleTotal, all))
+	}
+	parts = append(parts, "s sort · w weak · o ports · c clear")
+	return tableStatusStyle.Render(strings.Join(parts, " · "))
 }
 
 func renderRandomizedMACFootnote(hosts []*models.Host) string {

@@ -971,6 +971,12 @@ type ScanOptions struct {
 	AllAlive             bool
 	// AllowLargeScan permits scans exceeding the large-scan confirmation threshold.
 	AllowLargeScan bool
+	// Sort selects the host listing order (see scanner.SortOrders).
+	// "" means discovery (arrival) order.
+	Sort string
+	// Filter is a raw host filter expression (see scanner.ParseHostFilter).
+	// "" means no filtering.
+	Filter string
 }
 
 const DefaultConcurrency = 100

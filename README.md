@@ -170,6 +170,8 @@ With no target — `subnetlens scan` or `subnetlens scan local` — the local su
 - `--allow-large-scan` Confirm scans expanding to more than 1024 addresses (see [Large scans](#large-scans))
 - `--output` string Save the scan report into DIR instead of `~/.subnetlens` (the file is named automatically; `-` prints to stdout)
 - `--format` string Report format: json or csv (required with `--output`; without `--output`, saves to `~/.subnetlens`)
+- `--sort` string Host listing order: discovery, ip, latency, vendor, hostname (default discovery)
+- `--filter` string Only show hosts matching EXPR, e.g. `"port:22,os:linux"` (see [Sorting and filtering](#sorting-and-filtering))
 
 ## Platform Support
 
@@ -205,6 +207,23 @@ To print to the terminal instead of saving a file, use `--output -` (stdout, req
   subnetlens scan <IP> --plain --output - --format csv | head
   subnetlens scan <IP> --output - --format csv
 ```
+
+### Sorting and filtering
+
+`--sort` orders the host listing: `discovery` (arrival order, the default), `ip` (numeric), `latency` (fastest first, unknown last), `vendor`, or `hostname`. In `--plain` mode, sorted or filtered output prints when the scan completes instead of streaming; exports always carry the full unfiltered result.
+
+`--filter` narrows the listing to matching hosts. Comma separates AND conditions; repeating a key ORs its values. String values match case-insensitively as substrings; a bare term without a colon searches IP, hostname, MAC, vendor, OS, and device.
+
+Keys: `ip`, `host`, `mac`, `vendor`, `os`, `device`, `service` (open-port service), `port` (open-port number), `weak` / `alive` (`true`/`false`), `source` (discovery source).
+
+```bash
+  subnetlens scan 192.168.1.0/24 --sort ip --plain
+  subnetlens scan 192.168.1.0/24 --filter "port:22,os:linux" --plain
+  subnetlens scan 192.168.1.0/24 --filter "port:22,port:80" --plain   # either port open
+  subnetlens scan 192.168.1.0/24 --filter "printer,weak:false" --plain
+```
+
+In the TUI, `--sort` and `--filter` set the starting state, and keys adjust it live: `s` cycles the sort order, `w` hides weak-liveness hosts, `o` hides hosts with no open ports, `c` clears all filters. Scrolling: ↑/↓ or `j`/`k`, PgUp/PgDn, Home/End; `q` quits. The status line under the table always shows the active sort, filters, and keys.
 
 ## Large scans
 

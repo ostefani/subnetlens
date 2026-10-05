@@ -2,6 +2,8 @@
 package tui
 
 import (
+	"strings"
+
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/ostefani/subnetlens/models"
@@ -49,9 +51,28 @@ type Model struct {
 	windowWidth  int
 	windowHeight int
 	tableOffset  int
+
+	sortOrder       string
+	hideWeak        bool
+	hideNoOpenPorts bool
+	filter          *scanner.HostFilter
+	filterExpr      string
 }
 
 func New(opts models.ScanOptions, socketBudget int, warnings []string) Model {
+	// The CLI validates --sort/--filter strictly before the TUI starts; here
+	// invalid values degrade to the unfiltered discovery listing instead of
+	// failing a run that already passed validation.
+	sortOrder := scanner.DefaultSortOrder(opts.Sort)
+	filterExpr := strings.TrimSpace(opts.Filter)
+	var filter *scanner.HostFilter
+	if filterExpr != "" {
+		if parsed, err := scanner.ParseHostFilter(filterExpr); err == nil {
+			filter = parsed
+		} else {
+			filterExpr = ""
+		}
+	}
 	return Model{
 		opts:         opts,
 		socketBudget: socketBudget,
@@ -64,6 +85,9 @@ func New(opts models.ScanOptions, socketBudget int, warnings []string) Model {
 		hostIndex:    make(map[string]int),
 		windowWidth:  defaultWindowWidth,
 		windowHeight: defaultWindowHeight,
+		sortOrder:    sortOrder,
+		filter:       filter,
+		filterExpr:   filterExpr,
 	}
 }
 
@@ -96,6 +120,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setTableOffset(0)
 		case "end", "G":
 			m.setTableOffset(m.maxTableOffset())
+		case "s":
+			m.sortOrder = scanner.NextSortOrder(m.sortOrder)
+			m.refreshListing()
+		case "w":
+			m.hideWeak = !m.hideWeak
+			m.refreshListing()
+		case "o":
+			m.hideNoOpenPorts = !m.hideNoOpenPorts
+			m.refreshListing()
+		case "c":
+			m.hideWeak = false
+			m.hideNoOpenPorts = false
+			m.filter = nil
+			m.filterExpr = ""
+			m.refreshListing()
 		}
 		return m, nil
 
