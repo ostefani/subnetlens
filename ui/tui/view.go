@@ -44,6 +44,16 @@ func (m Model) View() string {
 	}
 
 	layout := m.viewLayout()
+	if m.detailOpen {
+		if host, index, total := m.detailHost(); host != nil {
+			sections := []string{layout.header, m.renderDetailSection(host, index, total, layout)}
+			if layout.summary != "" {
+				sections = append(sections, layout.summary)
+			}
+			return m.renderLayout(joinSections(sections...))
+		}
+	}
+
 	visibleHosts := m.visibleHosts()
 	sections := []string{layout.header}
 

@@ -64,6 +64,13 @@ var (
 					Foreground(colorFg)
 )
 
+// --- Host detail ---
+
+var (
+	detailTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(colorCyanMuted).MarginTop(1).MarginBottom(1)
+	detailBodyStyle  = lipgloss.NewStyle().Foreground(colorFg).PaddingLeft(2)
+)
+
 // --- Host table ---
 
 var (
@@ -90,6 +97,9 @@ const (
 
 	hostTableMinHeight  = 5
 	hostTableFrameLines = 4
+
+	detailMinHeight  = 4
+	detailFrameLines = 3
 
 	ipColumnWidth       = 15
 	hostnameColumnWidth = 15
