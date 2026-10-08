@@ -6,6 +6,8 @@ import (
 	"net"
 	"strings"
 	"testing"
+
+	"github.com/ostefani/subnetlens/scanner/discovery"
 )
 
 func testSubnetCandidate(t *testing.T, iface, cidr string) subnetCandidate {
@@ -179,11 +181,11 @@ func TestDefaultScanTargetReturnsUsableTarget(t *testing.T) {
 		}
 		t.Skipf("no local subnet on this host: %v", err)
 	}
-	spec, err := expandTargets(target)
+	spec, err := discovery.ExpandTargets(target)
 	if err != nil {
 		t.Fatalf("auto-detected target %q does not expand: %v", target, err)
 	}
-	if spec.total < 1 {
+	if spec.Total() < 1 {
 		t.Fatalf("auto-detected target %q expands to no addresses", target)
 	}
 }

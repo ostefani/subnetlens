@@ -16,6 +16,7 @@ import (
 	"github.com/ostefani/subnetlens/export"
 	"github.com/ostefani/subnetlens/models"
 	"github.com/ostefani/subnetlens/scanner"
+	"github.com/ostefani/subnetlens/scanner/discovery"
 )
 
 func TestRunScanRefusesLargeTargetWithoutFlag(t *testing.T) {
@@ -413,7 +414,7 @@ func TestFinalPlainSnapshotsSkipsLocalMachineAndAppliesFilter(t *testing.T) {
 		Subnet: "192.168.1.0/24",
 		Hosts:  []*models.Host{local, remote, other, nil},
 	}
-	info := scanner.LocalDiscoveryInfo{InScanRange: true, IP: "192.168.1.5"}
+	info := discovery.LocalDiscoveryInfo{InScanRange: true, IP: "192.168.1.5"}
 
 	filter, err := scanner.ParseHostFilter("port:22")
 	if err != nil {
