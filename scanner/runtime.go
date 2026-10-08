@@ -3,7 +3,6 @@ package scanner
 
 import (
 	"context"
-	"iter"
 
 	"github.com/ostefani/subnetlens/models"
 	"github.com/ostefani/subnetlens/scanner/contracts"
@@ -15,14 +14,8 @@ type ScanRuntime struct {
 	issues        issueReporter
 }
 
-type discoveryTargets struct {
-	seq      iter.Seq[string]
-	total    int
-	contains func(string) bool
-}
-
 type DiscoveryRuntime struct {
-	targets       discoveryTargets
+	targets       targetSpec
 	socketLimiter *socketLimiter
 	discoverySem  chan struct{}
 	issues        issueReporter
@@ -38,11 +31,7 @@ func newScanRuntime(socketLimiter *socketLimiter, scanSem chan struct{}, issues 
 
 func newDiscoveryRuntime(targets targetSpec, socketLimiter *socketLimiter, discoverySem chan struct{}, issues issueReporter) *DiscoveryRuntime {
 	return &DiscoveryRuntime{
-		targets: discoveryTargets{
-			seq:      targets.seq,
-			total:    targets.total,
-			contains: targets.contains,
-		},
+		targets:       targets,
 		socketLimiter: socketLimiter,
 		discoverySem:  discoverySem,
 		issues:        issues,
@@ -80,27 +69,9 @@ func (r *ScanRuntime) ReportIssue(issue models.ScanIssue) {
 	r.issues.Report(issue)
 }
 
-func (t discoveryTargets) All() iter.Seq[string] {
-	if t.seq == nil {
-		return func(func(string) bool) {}
-	}
-	return t.seq
-}
-
-func (t discoveryTargets) Total() int {
-	return t.total
-}
-
-func (t discoveryTargets) Contains(ip string) bool {
-	if t.contains == nil {
-		return false
-	}
-	return t.contains(ip)
-}
-
 func (r *DiscoveryRuntime) Targets() contracts.DiscoveryTargets {
 	if r == nil {
-		return discoveryTargets{}
+		return targetSpec{}
 	}
 	return r.targets
 }

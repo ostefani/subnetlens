@@ -13,12 +13,12 @@ import (
 )
 
 type resolveResult struct {
-	name           string
-	latency        time.Duration
-	source         models.HostSource
-	provesLiveness bool
-	observedAt     time.Time
-	expiresAt      time.Time
+        name           string
+        latency        time.Duration
+        source         models.HostSource
+        provesLiveness bool
+        observedAt     time.Time
+        expiresAt      time.Time
 }
 
 type observedConn struct {
