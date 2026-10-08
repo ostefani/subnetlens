@@ -5,10 +5,11 @@ package scanner
 import (
 	"context"
 	"iter"
-	"time"
+	"io"
 
 	"github.com/ostefani/subnetlens/models"
 	"github.com/ostefani/subnetlens/scanner/contracts"
+	"github.com/ostefani/subnetlens/scanner/discovery"
 )
 
 type nameCache interface {
@@ -17,9 +18,9 @@ type nameCache interface {
 }
 
 type icmpProber interface {
-	Probe(ctx context.Context, ip string, timeout time.Duration) (bool, time.Duration, error)
-	Warm(ip string) error
-	Close() error
+	discovery.ICMPProber
+	discovery.ICMPWarmer
+	io.Closer
 }
 
 type ouiLoader interface {
@@ -44,11 +45,11 @@ type activeARPSweeper interface {
 }
 
 type targetExpander interface {
-	Expand(string) (targetSpec, error)
+	Expand(string) (discovery.TargetSpec, error)
 }
 
 type subnetPreheater interface {
-	Preheat(context.Context, iter.Seq[string], int, icmpProber)
+	Preheat(context.Context, iter.Seq[string], int, discovery.ICMPWarmer)
 }
 
 type hostDiscoverer interface {
@@ -104,15 +105,15 @@ func (f activeARPSweeperFunc) Start(ctx context.Context, target string, targets 
 	f(ctx, target, targets, cache, issues)
 }
 
-type targetExpanderFunc func(string) (targetSpec, error)
+type targetExpanderFunc func(string) (discovery.TargetSpec, error)
 
-func (f targetExpanderFunc) Expand(target string) (targetSpec, error) {
+func (f targetExpanderFunc) Expand(target string) (discovery.TargetSpec, error) {
 	return f(target)
 }
 
-type subnetPreheaterFunc func(context.Context, iter.Seq[string], int, icmpProber)
+type subnetPreheaterFunc func(context.Context, iter.Seq[string], int, discovery.ICMPWarmer)
 
-func (f subnetPreheaterFunc) Preheat(ctx context.Context, ips iter.Seq[string], total int, icmp icmpProber) {
+func (f subnetPreheaterFunc) Preheat(ctx context.Context, ips iter.Seq[string], total int, icmp discovery.ICMPWarmer) {
 	f(ctx, ips, total, icmp)
 }
 

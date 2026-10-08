@@ -12,12 +12,22 @@ import (
 
 	"github.com/ostefani/subnetlens/models"
 	"github.com/ostefani/subnetlens/scanner/contracts"
+	"github.com/ostefani/subnetlens/scanner/discovery"
 )
 
 type countingOUILoader struct {
 	mu    sync.Mutex
 	calls int
 	err   error
+}
+
+func mustExpandTargets(t *testing.T, target string) discovery.TargetSpec {
+	t.Helper()
+	spec, err := discovery.ExpandTargets(target)
+	if err != nil {
+		t.Fatalf("expand %q: %v", target, err)
+	}
+	return spec
 }
 
 func (m *countingOUILoader) LoadOUICSV() error {
@@ -160,11 +170,11 @@ type stubTargetExpander struct {
 	mu     sync.Mutex
 	calls  int
 	target string
-	spec   targetSpec
+	spec   discovery.TargetSpec
 	err    error
 }
 
-func (m *stubTargetExpander) Expand(target string) (targetSpec, error) {
+func (m *stubTargetExpander) Expand(target string) (discovery.TargetSpec, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.calls++
@@ -185,7 +195,7 @@ type stubSubnetPreheater struct {
 	lastICMPWasNil bool
 }
 
-func (m *stubSubnetPreheater) Preheat(_ context.Context, _ iter.Seq[string], total int, icmp icmpProber) {
+func (m *stubSubnetPreheater) Preheat(_ context.Context, _ iter.Seq[string], total int, icmp discovery.ICMPWarmer) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.calls++
@@ -512,9 +522,7 @@ func TestEngineCoordinatesHostUpdatesWithScanCompletion(t *testing.T) {
 	mdnsListener := &stubPassiveMDNSListener{cache: &stubNameCache{}}
 	arpSweeper := &stubActiveARPSweeper{}
 	targetExpander := &stubTargetExpander{
-		spec: targetSpec{
-			seq: func(func(string) bool) {},
-		},
+		spec: discovery.TargetSpec{},
 	}
 	preheater := &stubSubnetPreheater{}
 	discoverer := &stubHostDiscoverer{events: events}
@@ -697,17 +705,18 @@ func TestEngineMergesPassiveMDNSObservationsBeforeHostReady(t *testing.T) {
 				events: mdnsEvents,
 			},
 			activeARPSweeper: &stubActiveARPSweeper{},
-			targetExpander: &stubTargetExpander{
-				spec: targetSpec{
-					seq: func(yield func(string) bool) {
-						yield("192.168.1.10")
-					},
-					total: 1,
-					contains: func(ip string) bool {
-						return ip == "192.168.1.10"
-					},
-				},
-			},
+			// targetExpander: &stubTargetExpander{
+			// 	spec: discovery.TargetSpec{
+			// 		seq: func(yield func(string) bool) {
+			// 			yield("192.168.1.10")
+			// 		},
+			// 		total: 1,
+			// 		contains: func(ip string) bool {
+			// 			return ip == "192.168.1.10"
+			// 		},
+			// 	},
+			// },
+			targetExpander: &stubTargetExpander{spec: mustExpandTargets(t, "192.168.1.10")},
 			subnetPreheater: preheaterNoop{},
 			hostDiscoverer:  &stubHostDiscoverer{events: events},
 			portScanner: &blockingPortScanner{
@@ -807,17 +816,7 @@ func TestEngineFiltersPassiveMDNSObservationsOutsideTargets(t *testing.T) {
 				events: mdnsEvents,
 			},
 			activeARPSweeper: &stubActiveARPSweeper{},
-			targetExpander: &stubTargetExpander{
-				spec: targetSpec{
-					seq: func(yield func(string) bool) {
-						yield("192.168.1.10")
-					},
-					total: 1,
-					contains: func(ip string) bool {
-						return ip == "192.168.1.10"
-					},
-				},
-			},
+			targetExpander: &stubTargetExpander{spec: mustExpandTargets(t, "192.168.1.10")},
 			subnetPreheater: preheaterNoop{},
 			hostDiscoverer:  &stubHostDiscoverer{events: events},
 			portScanner:     portScanner,
@@ -950,9 +949,7 @@ func TestEngineUsesRegisteredHostScannerAndClassifier(t *testing.T) {
 			passiveMDNSListener: &stubPassiveMDNSListener{cache: &stubNameCache{}},
 			activeARPSweeper:    &stubActiveARPSweeper{},
 			targetExpander: &stubTargetExpander{
-				spec: targetSpec{
-					seq: func(func(string) bool) {},
-				},
+				spec: discovery.TargetSpec{},
 			},
 			subnetPreheater: preheaterNoop{},
 			hostDiscoverer:  discoverer,
@@ -1047,9 +1044,7 @@ func TestEngineMergesPortsAcrossProtocolScopedHostScanners(t *testing.T) {
 			passiveMDNSListener: &stubPassiveMDNSListener{cache: &stubNameCache{}},
 			activeARPSweeper:    &stubActiveARPSweeper{},
 			targetExpander: &stubTargetExpander{
-				spec: targetSpec{
-					seq: func(func(string) bool) {},
-				},
+				spec: discovery.TargetSpec{},
 			},
 			subnetPreheater: preheaterNoop{},
 			hostDiscoverer:  discoverer,
@@ -1113,14 +1108,7 @@ func TestEngineUsesRegisteredDiscoveryModules(t *testing.T) {
 			icmpFactory:         &stubICMPFactory{factory: errors.New("icmp unavailable in test")},
 			passiveMDNSListener: &stubPassiveMDNSListener{cache: &stubNameCache{}},
 			activeARPSweeper:    &stubActiveARPSweeper{},
-			targetExpander: &stubTargetExpander{
-				spec: targetSpec{
-					seq: func(yield func(string) bool) {
-						yield("192.168.1.77")
-					},
-					total: 1,
-				},
-			},
+			targetExpander: &stubTargetExpander{spec: mustExpandTargets(t, "192.168.1.77")},
 			subnetPreheater: preheaterNoop{},
 			hostDiscoverer:  discoverer,
 			portScanner: &blockingPortScanner{
@@ -1170,7 +1158,7 @@ func TestEngineUsesRegisteredDiscoveryModules(t *testing.T) {
 
 type preheaterNoop struct{}
 
-func (preheaterNoop) Preheat(context.Context, iter.Seq[string], int, icmpProber) {}
+func (preheaterNoop) Preheat(context.Context, iter.Seq[string], int, discovery.ICMPWarmer) {}
 
 func closedChan() <-chan struct{} {
 	ch := make(chan struct{})

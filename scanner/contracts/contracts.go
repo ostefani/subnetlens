@@ -91,3 +91,15 @@ type AdditionalSocketDemand struct {
 type SocketDemandReporter interface {
 	AdditionalSocketDemand(models.ScanOptions) AdditionalSocketDemand
 }
+
+// NameResolution is the outcome of resolving a hostname for an IP.
+// ProvesLiveness is true when the resolution method itself shows the host
+// answered (mDNS, NBNS) rather than merely having a DNS record (PTR).
+type NameResolution struct {
+	Name           string
+	Latency        time.Duration
+	Source         models.HostSource
+	ProvesLiveness bool
+	ObservedAt     time.Time
+	ExpiresAt      time.Time
+}

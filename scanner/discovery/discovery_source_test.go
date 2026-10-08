@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Olha Stefanishyna. MIT License.
 
-package scanner
+package discovery
 
 import (
 	"context"
@@ -17,25 +17,19 @@ func (stubAliveICMPProber) Probe(context.Context, string, time.Duration) (bool, 
 	return true, 10 * time.Millisecond, nil
 }
 
-func (stubAliveICMPProber) Warm(string) error { return nil }
-
-func (stubAliveICMPProber) Close() error { return nil }
-
 func TestProbeHostSmartPropagatesResolvedHostnameSource(t *testing.T) {
-	cache := &mdnsCache{
-		names: map[string]resolveResult{
-			"192.168.1.20": {
-				name:   "workstation",
-				source: models.HostSourceNBNS,
-			},
-		},
+	resolve := func(context.Context, string, contracts.SocketLimiter) contracts.NameResolution {
+		return contracts.NameResolution{
+			Name:   "workstation",
+			Source: models.HostSourceNBNS,
+		}
 	}
 
 	updates := probeHostSmart(
 		context.Background(),
 		"192.168.1.20",
 		models.ScanOptions{Timeout: 50 * time.Millisecond},
-		cache,
+		resolve,
 		stubAliveICMPProber{},
 		nil,
 		nil,
@@ -61,20 +55,18 @@ func TestProbeHostSmartDoesNotTreatPTRNameAsLiveness(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	cache := &mdnsCache{
-		names: map[string]resolveResult{
-			"192.168.1.30": {
-				name:   "stale.example.internal",
-				source: models.HostSourcePTR,
-			},
-		},
+	resolve := func(context.Context, string, contracts.SocketLimiter) contracts.NameResolution {
+		return contracts.NameResolution{
+			Name:   "stale.example.internal",
+			Source: models.HostSourcePTR,
+		}
 	}
 
 	updates := probeHostSmart(
 		ctx,
 		"192.168.1.30",
 		models.ScanOptions{Timeout: 50 * time.Millisecond},
-		cache,
+		resolve,
 		nil,
 		nil,
 		nil,
@@ -93,5 +85,24 @@ func TestProbeHostSmartDoesNotTreatPTRNameAsLiveness(t *testing.T) {
 	}
 	if update.Source != models.HostSourcePTR {
 		t.Fatalf("expected PTR source, got %q", update.Source)
+	}
+}
+
+func TestProbeHostSmartWithoutResolverReportsLivenessOnly(t *testing.T) {
+	updates := probeHostSmart(
+		context.Background(),
+		"192.168.1.40",
+		models.ScanOptions{Timeout: 50 * time.Millisecond},
+		nil,
+		stubAliveICMPProber{},
+		nil,
+		nil,
+	)
+
+	if len(updates) != 1 {
+		t.Fatalf("expected 1 liveness update, got %d: %+v", len(updates), updates)
+	}
+	if !updates[0].Alive || updates[0].Source != models.HostSourceICMP || updates[0].Name != "" {
+		t.Fatalf("expected a nameless ICMP liveness update, got %+v", updates[0])
 	}
 }

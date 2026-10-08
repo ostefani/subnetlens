@@ -15,6 +15,7 @@ import (
 	"github.com/ostefani/subnetlens/internal/textutil"
 	"github.com/ostefani/subnetlens/models"
 	"github.com/ostefani/subnetlens/scanner"
+	"github.com/ostefani/subnetlens/scanner/discovery"
 	"github.com/ostefani/subnetlens/ui/tui"
 )
 
@@ -241,8 +242,8 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 
 	// Fail fast before the TUI/plain runner starts.
-	if _, err := scanner.CheckTargetConsent(subnet, opts); err != nil {
-		var confirmationErr *scanner.LargeScanConfirmationError
+	if _, err := discovery.CheckTargetConsent(subnet, opts); err != nil {
+		var confirmationErr *discovery.LargeScanConfirmationError
 		if errors.As(err, &confirmationErr) {
 			if auto {
 				return fmt.Errorf("auto-detected target %q expands to %d addresses (over the %d address confirmation threshold): pass a smaller target explicitly or re-run with --allow-large-scan", confirmationErr.Target, confirmationErr.Total, confirmationErr.Threshold)
@@ -305,7 +306,7 @@ func exportScanResult(path string, result *models.ScanResult, format export.Form
 func runPlain(opts models.ScanOptions, socketBudget int, warnings []string, exportPath string, exportFormat export.Format, filter *scanner.HostFilter) error {
 	printWarnings(warnings)
 	human := exportPath != "-"
-	local := scanner.LocalDiscoveryInfoForTarget(opts.Subnet)
+	local := discovery.LocalDiscoveryInfoForTarget(opts.Subnet)
 	buffered := scanner.DefaultSortOrder(opts.Sort) != scanner.SortDiscovery || filter != nil
 	if human {
 		fmt.Fprintf(os.Stdout, "Scanning %s ...\n\n", opts.Subnet)
@@ -398,7 +399,7 @@ func runPlain(opts models.ScanOptions, socketBudget int, warnings []string, expo
 // filtered) plain output. Like the streaming path it hides the local machine,
 // which already has its own header box; unlike it, the set is complete, so
 // filters judge final port/vendor state instead of mid-scan partials.
-func finalPlainSnapshots(result *models.ScanResult, local scanner.LocalDiscoveryInfo, filter *scanner.HostFilter) []models.HostSnapshot {
+func finalPlainSnapshots(result *models.ScanResult, local discovery.LocalDiscoveryInfo, filter *scanner.HostFilter) []models.HostSnapshot {
 	if result == nil {
 		return nil
 	}
@@ -495,7 +496,7 @@ func printPlainHost(snapshot models.HostSnapshot) {
 	}
 }
 
-func printPlainLocalMachine(info scanner.LocalDiscoveryInfo) {
+func printPlainLocalMachine(info discovery.LocalDiscoveryInfo) {
 	if info.Hostname == "" && info.Interface == "" {
 		return
 	}

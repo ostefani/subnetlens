@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/ostefani/subnetlens/scanner/contracts"
+	"github.com/ostefani/subnetlens/scanner/discovery"
 )
 
 // LocalTargetKeyword is an explicit alias for the zero-config scan target:
@@ -174,11 +175,11 @@ func constrainAutoTarget(c subnetCandidate, allowLarge bool) (target, narrowedFr
 	if allowLarge {
 		return full, "", nil
 	}
-	spec, err := expandTargets(full)
+	spec, err := discovery.ExpandTargets(full)
 	if err != nil {
 		return "", "", err
 	}
-	if uint64(spec.total) <= contracts.LargeScanThreshold {
+	if uint64(spec.Total()) <= contracts.LargeScanThreshold {
 		return full, "", nil
 	}
 	narrowed := &net.IPNet{IP: c.network.IP.Mask(net.CIDRMask(24, 32)), Mask: net.CIDRMask(24, 32)}

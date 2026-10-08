@@ -8,6 +8,7 @@ import (
 
 	"github.com/ostefani/subnetlens/models"
 	"github.com/ostefani/subnetlens/scanner"
+	"github.com/ostefani/subnetlens/scanner/discovery"
 )
 
 const (
@@ -33,7 +34,7 @@ type Model struct {
 	opts         models.ScanOptions
 	socketBudget int
 	warnings     []string
-	local        scanner.LocalDiscoveryInfo
+	local        discovery.LocalDiscoveryInfo
 	hostCh       chan *models.Host
 	progCh       chan [2]int
 	issueCh      chan models.ScanIssue
@@ -82,7 +83,7 @@ func New(opts models.ScanOptions, socketBudget int, warnings []string) Model {
 		opts:         opts,
 		socketBudget: socketBudget,
 		warnings:     warnings,
-		local:        scanner.LocalDiscoveryInfoForTarget(opts.Subnet),
+		local:        discovery.LocalDiscoveryInfoForTarget(opts.Subnet),
 		hostCh:       make(chan *models.Host, 32),
 		progCh:       make(chan [2]int, 32),
 		issueCh:      make(chan models.ScanIssue, 16),

@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/ostefani/subnetlens/models"
 	"github.com/ostefani/subnetlens/scanner"
+	"github.com/ostefani/subnetlens/scanner/discovery"
 )
 
 func TestHostTableViewportClampsOffsetToVisibleRows(t *testing.T) {
@@ -157,7 +158,7 @@ func TestMergeHostsPreservesStreamOrderAndAddsMissingFinalHosts(t *testing.T) {
 
 func TestVisibleHostsFiltersLocalHost(t *testing.T) {
 	m := Model{
-		local: scanner.LocalDiscoveryInfo{
+		local: discovery.LocalDiscoveryInfo{
 			InScanRange: true,
 			IP:          "192.168.1.10",
 		},
@@ -349,7 +350,7 @@ func TestRenderRandomizedMACFootnote(t *testing.T) {
 }
 
 func TestRenderLocalMachineUsesLabeledLines(t *testing.T) {
-	info := scanner.LocalDiscoveryInfo{
+	info := discovery.LocalDiscoveryInfo{
 		Hostname:    "workstation",
 		Interface:   "en0",
 		IP:          "192.168.1.20",
@@ -400,7 +401,7 @@ func TestRenderLocalMachineUsesLabeledLines(t *testing.T) {
 }
 
 func TestRenderLocalMachineSanitizesInlineValues(t *testing.T) {
-	info := scanner.LocalDiscoveryInfo{
+	info := discovery.LocalDiscoveryInfo{
 		Hostname:  "workstation\x1b[31m\nlab",
 		Interface: "en0\tmain",
 	}

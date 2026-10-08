@@ -3,23 +3,27 @@
 package scanner
 
 import (
-	"fmt"
+	// "fmt"
 	"net"
-	"os"
+	// "os"
 	"strings"
-
+	"github.com/ostefani/subnetlens/internal/debuglog"
 	"github.com/ostefani/subnetlens/internal/textutil"
 )
 
-var DebugMode = os.Getenv("SLENS_DEBUG") == "1"
+// var DebugMode = os.Getenv("SLENS_DEBUG") == "1"
 
 func debugLog(subsystem, format string, args ...any) {
-	if !DebugMode {
-		return
-	}
-	msg := fmt.Sprintf(format, args...)
-	fmt.Fprintf(os.Stderr, "[DEBUG][%-10s] %s\n", subsystem, msg)
+	debuglog.Printf(subsystem, format, args...)
 }
+
+// func debugLog(subsystem, format string, args ...any) {
+// 	if !DebugMode {
+// 		return
+// 	}
+// 	msg := fmt.Sprintf(format, args...)
+// 	fmt.Fprintf(os.Stderr, "[DEBUG][%-10s] %s\n", subsystem, msg)
+// }
 
 func normalizeMDNSName(name string) string {
 	name = strings.TrimSuffix(name, ".local")

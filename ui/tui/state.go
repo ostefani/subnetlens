@@ -5,6 +5,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ostefani/subnetlens/models"
 	"github.com/ostefani/subnetlens/scanner"
+	"github.com/ostefani/subnetlens/scanner/discovery"
 )
 
 func (m Model) visibleHosts() []*models.Host {
@@ -156,7 +157,7 @@ func (m *Model) mergeHosts(hosts []*models.Host) {
 	m.applyHostBatch(hosts)
 }
 
-func filterVisibleHosts(hosts []*models.Host, local scanner.LocalDiscoveryInfo) []*models.Host {
+func filterVisibleHosts(hosts []*models.Host, local discovery.LocalDiscoveryInfo) []*models.Host {
 	if !local.InScanRange || local.IP == "" {
 		return hosts
 	}

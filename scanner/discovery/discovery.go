@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Olha Stefanishyna. MIT License.
 
-package scanner
+package discovery
 
 import (
 	"context"
@@ -13,17 +13,48 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ostefani/subnetlens/internal/debuglog"
 	"github.com/ostefani/subnetlens/models"
 	"github.com/ostefani/subnetlens/scanner/contracts"
 	arptransport "github.com/ostefani/subnetlens/transports/arp"
 	mdnstransport "github.com/ostefani/subnetlens/transports/mdns"
+	tcptransport "github.com/ostefani/subnetlens/transports/tcp"
 )
 
-type targetSpec struct {
+// ICMPProber is the liveness capability discovery needs from the scanner.
+type ICMPProber interface {
+	Probe(ctx context.Context, ip string, timeout time.Duration) (bool, time.Duration, error)
+}
+
+// ICMPWarmer is the capability PreheatSubnet needs.
+type ICMPWarmer interface {
+	Warm(ip string) error
+}
+
+// HostnameResolver resolves a name for ip (cache, mDNS, NBNS, PTR...). The
+// scanner owns the strategy and the cache; discovery only consumes results.
+type HostnameResolver func(ctx context.Context, ip string, limiter contracts.SocketLimiter) contracts.NameResolution
+
+// TargetSpec is a lazily enumerated set of IPv4 targets. It satisfies
+// contracts.DiscoveryTargets.
+type TargetSpec struct {
 	seq      iter.Seq[string]
 	total    int
 	contains func(string) bool
 }
+
+var _ contracts.DiscoveryTargets = TargetSpec{}
+
+func (t TargetSpec) All() iter.Seq[string] {
+	if t.seq == nil {
+		return func(func(string) bool) {}
+	}
+	return t.seq
+}
+
+func (t TargetSpec) Total() int { return t.total }
+
+func (t TargetSpec) Contains(ip string) bool { return t.contains != nil && t.contains(ip) }
 
 type LocalDiscoveryInfo struct {
 	Hostname    string
@@ -38,9 +69,9 @@ func DiscoverHosts(
 	ctx context.Context,
 	opts models.ScanOptions,
 	progress func(done, total int),
-	cache nameCache,
-	icmpScanner icmpProber,
-	arpCache *ARPCache,
+	resolve HostnameResolver,
+	icmpScanner ICMPProber,
+	arpCache *arptransport.Cache,
 	runtime contracts.DiscoveryRuntime,
 ) <-chan contracts.HostObservation {
 	out := make(chan contracts.HostObservation, 256)
@@ -52,7 +83,7 @@ func DiscoverHosts(
 		if targets.Total() == 0 {
 			return
 		}
-		debugLog("discovery", "sweeping %d IPs in %s", targets.Total(), opts.Subnet)
+		debuglog.Printf("discovery", "sweeping %d IPs in %s", targets.Total(), opts.Subnet)
 
 		localInfo := localDiscoveryInfoForTarget(opts.Subnet, targets.Contains)
 		for _, observation := range localHostObservations(localInfo) {
@@ -63,7 +94,11 @@ func DiscoverHosts(
 
 		go func() {
 			if err := mdnstransport.TriggerServiceDiscovery(ctx); err != nil && ctx.Err() == nil {
-				runtime.ReportIssue(warningIssue("mdns", "active mDNS discovery trigger unavailable: %v", err))
+				runtime.ReportIssue(models.ScanIssue{
+					Level:   models.ScanIssueLevelWarning,
+					Source:  "mdns",
+					Message: fmt.Sprintf("active mDNS discovery trigger unavailable: %v", err),
+				})
 			}
 		}()
 
@@ -93,7 +128,7 @@ func DiscoverHosts(
 		for ip := range targets.All() {
 			select {
 			case <-ctx.Done():
-				debugLog("discovery", "context cancelled after %d IPs — draining", done)
+				debuglog.Printf("discovery", "context cancelled after %d IPs — draining", done)
 				break Loop
 			default:
 			}
@@ -106,7 +141,7 @@ func DiscoverHosts(
 				defer waitGroup.Done()
 				defer runtime.ReleaseDiscoverySlot()
 
-				observations := probeHostSmart(ctx, ip, opts, cache, icmpScanner, arpCache, runtime.SocketLimiter())
+				observations := probeHostSmart(ctx, ip, opts, resolve, icmpScanner, arpCache, runtime.SocketLimiter())
 
 				mu.Lock()
 				done++
@@ -128,7 +163,7 @@ func DiscoverHosts(
 		close(scanDone)
 		arpWG.Wait()
 
-		debugLog("discovery", "sweep complete")
+		debuglog.Printf("discovery", "sweep complete")
 	}()
 
 	return out
@@ -138,7 +173,7 @@ func LocalDiscoveryInfoForTarget(target string) LocalDiscoveryInfo {
 	var contains func(string) bool
 	targets, err := expandTargets(target)
 	if err == nil {
-		contains = targets.contains
+		contains = targets.Contains
 	}
 	return localDiscoveryInfoForTarget(target, contains)
 }
@@ -255,9 +290,9 @@ func probeHostSmart(
 	ctx context.Context,
 	ip string,
 	opts models.ScanOptions,
-	cache nameCache,
-	icmpScanner icmpProber,
-	arpCache *ARPCache,
+	resolve HostnameResolver,
+	icmpScanner ICMPProber,
+	arpCache *arptransport.Cache,
 	socketLimiter contracts.SocketLimiter,
 ) []contracts.HostObservation {
 	observations := make([]contracts.HostObservation, 0, 3)
@@ -274,21 +309,27 @@ func probeHostSmart(
 		}
 	}
 
-	resCh := make(chan resolveResult, 1)
-	go func() { resCh <- resolveHostname(ctx, ip, cache, socketLimiter) }()
+	resCh := make(chan contracts.NameResolution, 1)
+	go func() {
+		if resolve == nil {
+			resCh <- contracts.NameResolution{}
+			return
+		}
+		resCh <- resolve(ctx, ip, socketLimiter)
+	}()
 
 	alive, latency, seenBy := livenessProbe(ctx, ip, opts, icmpScanner, socketLimiter)
 	res := <-resCh
 
-	if res.name != "" && res.name != ip {
+	if res.Name != "" && res.Name != ip {
 		observations = append(observations, contracts.HostObservation{
 			IP:         ip,
-			Name:       res.name,
-			Alive:      res.provesLiveness,
-			Weak:       !res.provesLiveness,
-			Source:     res.source,
-			ObservedAt: res.observedAt,
-			ExpiresAt:  res.expiresAt,
+			Name:       res.Name,
+			Alive:      res.ProvesLiveness,
+			Weak:       !res.ProvesLiveness,
+			Source:     res.Source,
+			ObservedAt: res.ObservedAt,
+			ExpiresAt:  res.ExpiresAt,
 		})
 	}
 
@@ -313,7 +354,7 @@ func livenessProbe(
 	ctx context.Context,
 	ip string,
 	opts models.ScanOptions,
-	icmpScanner icmpProber,
+	icmpScanner ICMPProber,
 	limiter contracts.SocketLimiter,
 ) (bool, time.Duration, models.HostSource) {
 	if icmpScanner != nil {
@@ -325,14 +366,12 @@ func livenessProbe(
 		}
 	}
 
-	var tcp func(context.Context, string, time.Duration, contracts.SocketLimiter) (bool, time.Duration)
+	probe := tcptransport.ProbeOpenPort
 	if opts.AllAlive {
-		tcp = tcpProbeAlive
-	} else {
-		tcp = tcpProbeOpenPort
+		probe = tcptransport.ProbeAlive
 	}
 
-	alive, latency := tcp(ctx, ip, opts.Timeout, limiter)
+	alive, latency := probe(ctx, ip, opts.Timeout, limiter)
 	if !alive {
 		return false, 0, ""
 	}
@@ -340,7 +379,12 @@ func livenessProbe(
 	return true, latency, models.HostSourceTCP
 }
 
-func expandTargets(target string) (targetSpec, error) {
+// ExpandTargets resolves a CIDR, a single IPv4 address, or an "a-b" range.
+func ExpandTargets(target string) (TargetSpec, error) {
+	return expandTargets(target)
+}
+
+func expandTargets(target string) (TargetSpec, error) {
 	if strings.Contains(target, "-") {
 		return expandRangeSpec(target)
 	}
@@ -348,7 +392,7 @@ func expandTargets(target string) (targetSpec, error) {
 	if ip := net.ParseIP(target); ip != nil {
 		ip4 := ip.To4()
 		if ip4 == nil {
-			return targetSpec{}, fmt.Errorf("invalid target %q: IPv6 is not supported", target)
+			return TargetSpec{}, fmt.Errorf("invalid target %q: IPv6 is not supported", target)
 		}
 		return rangeSpec(ipToUint32(ip4), ipToUint32(ip4), false)
 	}
@@ -356,20 +400,20 @@ func expandTargets(target string) (targetSpec, error) {
 	return expandCIDRSpec(target)
 }
 
-func expandCIDRSpec(target string) (targetSpec, error) {
+func expandCIDRSpec(target string) (TargetSpec, error) {
 	ip, network, err := net.ParseCIDR(target)
 	if err != nil {
-		return targetSpec{}, fmt.Errorf("invalid target %q: expected CIDR, IP, or range (e.g. 192.168.0.0-192.168.0.100): %w", target, err)
+		return TargetSpec{}, fmt.Errorf("invalid target %q: expected CIDR, IP, or range (e.g. 192.168.0.0-192.168.0.100): %w", target, err)
 	}
 
 	ip4 := ip.To4()
 	if ip4 == nil {
-		return targetSpec{}, fmt.Errorf("invalid target %q: IPv6 CIDR is not supported", target)
+		return TargetSpec{}, fmt.Errorf("invalid target %q: IPv6 CIDR is not supported", target)
 	}
 
 	ones, bits := network.Mask.Size()
 	if bits != 32 {
-		return targetSpec{}, fmt.Errorf("invalid target %q: expected IPv4 CIDR", target)
+		return TargetSpec{}, fmt.Errorf("invalid target %q: expected IPv4 CIDR", target)
 	}
 
 	hostCount := uint64(1) << uint(bits-ones)
@@ -380,15 +424,16 @@ func expandCIDRSpec(target string) (targetSpec, error) {
 	return rangeSpec(start, end, skipNetworkBroadcast)
 }
 
-func preheatSubnet(ctx context.Context, ips iter.Seq[string], total int, icmpScanner icmpProber) {
+// PreheatSubnet warms ICMP state for every target before the sweep.
+func PreheatSubnet(ctx context.Context, ips iter.Seq[string], total int, icmpScanner ICMPWarmer) {
 	if icmpScanner == nil {
-		debugLog("discovery", "preheat skipped: ICMP unavailable")
+		debuglog.Printf("discovery", "preheat skipped: ICMP unavailable")
 		return
 	}
 
 	const maxPreheatTargets = 4096
 	if total > maxPreheatTargets {
-		debugLog("discovery", "preheat skipped: %d targets exceeds %d cap", total, maxPreheatTargets)
+		debuglog.Printf("discovery", "preheat skipped: %d targets exceeds %d cap", total, maxPreheatTargets)
 		return
 	}
 
@@ -419,45 +464,45 @@ func preheatSubnet(ctx context.Context, ips iter.Seq[string], total int, icmpSca
 	wg.Wait()
 }
 
-func expandRangeSpec(target string) (targetSpec, error) {
+func expandRangeSpec(target string) (TargetSpec, error) {
 	parts := strings.SplitN(target, "-", 2)
 	if len(parts) != 2 {
-		return targetSpec{}, fmt.Errorf("invalid range %q: expected format 192.168.0.0-192.168.0.100", target)
+		return TargetSpec{}, fmt.Errorf("invalid range %q: expected format 192.168.0.0-192.168.0.100", target)
 	}
 
 	startIP := net.ParseIP(strings.TrimSpace(parts[0])).To4()
 	endIP := net.ParseIP(strings.TrimSpace(parts[1])).To4()
 
 	if startIP == nil {
-		return targetSpec{}, fmt.Errorf("invalid range start IP %q", parts[0])
+		return TargetSpec{}, fmt.Errorf("invalid range start IP %q", parts[0])
 	}
 	if endIP == nil {
-		return targetSpec{}, fmt.Errorf("invalid range end IP %q", parts[1])
+		return TargetSpec{}, fmt.Errorf("invalid range end IP %q", parts[1])
 	}
 
 	start := ipToUint32(startIP)
 	end := ipToUint32(endIP)
 	if start > end {
-		return targetSpec{}, fmt.Errorf("range start %q is after range end %q", parts[0], parts[1])
+		return TargetSpec{}, fmt.Errorf("range start %q is after range end %q", parts[0], parts[1])
 	}
 
 	spec, err := rangeSpec(start, end, false)
 	if err != nil {
-		return targetSpec{}, err
+		return TargetSpec{}, err
 	}
-	debugLog("discovery", "range %s expanded to %d IPs", target, spec.total)
+	debuglog.Printf("discovery", "range %s expanded to %d IPs", target, spec.total)
 	return spec, nil
 }
 
-func rangeSpec(start, end uint32, skipEndpoints bool) (targetSpec, error) {
+func rangeSpec(start, end uint32, skipEndpoints bool) (TargetSpec, error) {
 	if start > end {
-		return targetSpec{}, fmt.Errorf("invalid range %d-%d", start, end)
+		return TargetSpec{}, fmt.Errorf("invalid range %d-%d", start, end)
 	}
 
 	count := uint64(end-start) + 1
 	maxAddresses := uint64(math.MaxInt)
 	if count > maxAddresses {
-		return targetSpec{}, fmt.Errorf("target expands to %d addresses, exceeding the %d address enumeration limit", count, maxAddresses)
+		return TargetSpec{}, fmt.Errorf("target expands to %d addresses, exceeding the %d address enumeration limit", count, maxAddresses)
 	}
 
 	total := int(count)
@@ -487,7 +532,7 @@ func rangeSpec(start, end uint32, skipEndpoints bool) (targetSpec, error) {
 		return val >= start && val <= end
 	}
 
-	return targetSpec{
+	return TargetSpec{
 		seq:      seq,
 		total:    total,
 		contains: contains,

@@ -22,7 +22,7 @@ Website: <https://ostefani.github.io/subnetlens/> — Core vs Pro comparison.
 > 📌
 
 
-_**Key Rotation Note:** New signature keys effective Sep 16, 2026. Legacy keys are no longer active on this profile. Commits signed before that date may appear Unverified as a result of the rotation._
+_**Key Rotation Note:** New signature keys effective Oct 8, 2026. Legacy keys are no longer active on this profile. Commits signed before that date may appear Unverified as a result of the rotation._
 
 Supports multiple discovery methods:
 
