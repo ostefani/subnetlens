@@ -11,6 +11,7 @@ import (
 	"github.com/ostefani/subnetlens/internal/textutil"
 	"github.com/ostefani/subnetlens/models"
 	"github.com/ostefani/subnetlens/scanner"
+	"github.com/ostefani/subnetlens/scanner/discovery"
 )
 
 type tableViewport struct {
@@ -237,7 +238,7 @@ func renderProgressBar(done, total int) string {
 	)
 }
 
-func renderLocalMachine(info scanner.LocalDiscoveryInfo) string {
+func renderLocalMachine(info discovery.LocalDiscoveryInfo) string {
 	if info.Hostname == "" && info.Interface == "" {
 		return ""
 	}

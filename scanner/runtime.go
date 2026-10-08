@@ -6,6 +6,7 @@ import (
 
 	"github.com/ostefani/subnetlens/models"
 	"github.com/ostefani/subnetlens/scanner/contracts"
+	"github.com/ostefani/subnetlens/scanner/discovery"
 )
 
 type ScanRuntime struct {
@@ -15,7 +16,7 @@ type ScanRuntime struct {
 }
 
 type DiscoveryRuntime struct {
-	targets       targetSpec
+	targets       discovery.TargetSpec
 	socketLimiter *socketLimiter
 	discoverySem  chan struct{}
 	issues        issueReporter
@@ -29,7 +30,7 @@ func newScanRuntime(socketLimiter *socketLimiter, scanSem chan struct{}, issues 
 	}
 }
 
-func newDiscoveryRuntime(targets targetSpec, socketLimiter *socketLimiter, discoverySem chan struct{}, issues issueReporter) *DiscoveryRuntime {
+func newDiscoveryRuntime(targets discovery.TargetSpec, socketLimiter *socketLimiter, discoverySem chan struct{}, issues issueReporter) *DiscoveryRuntime {
 	return &DiscoveryRuntime{
 		targets:       targets,
 		socketLimiter: socketLimiter,
@@ -71,7 +72,7 @@ func (r *ScanRuntime) ReportIssue(issue models.ScanIssue) {
 
 func (r *DiscoveryRuntime) Targets() contracts.DiscoveryTargets {
 	if r == nil {
-		return targetSpec{}
+		return discovery.TargetSpec{}
 	}
 	return r.targets
 }

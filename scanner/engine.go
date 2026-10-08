@@ -9,6 +9,7 @@ import (
 
 	"github.com/ostefani/subnetlens/models"
 	"github.com/ostefani/subnetlens/scanner/contracts"
+	"github.com/ostefani/subnetlens/scanner/discovery"
 	icmptransport "github.com/ostefani/subnetlens/transports/icmp"
 )
 
@@ -44,8 +45,8 @@ func NewEngine(opts models.ScanOptions, socketBudget int, options ...Option) *En
 				return startPassiveMDNSListener(ctx)
 			}),
 			activeARPSweeper: activeARPSweeperFunc(startActiveARPSweepWithIssues),
-			targetExpander:   targetExpanderFunc(expandTargets),
-			subnetPreheater:  subnetPreheaterFunc(preheatSubnet),
+			targetExpander:   targetExpanderFunc(discovery.ExpandTargets),
+			subnetPreheater:  subnetPreheaterFunc(discovery.PreheatSubnet),
 			hostDiscoverer:   hostDiscovererFunc(DiscoverHosts),
 			portScanner:      portScannerFunc(ScanPorts),
 			hostEnricher:     hostEnricherFunc(EnrichHost),
@@ -82,14 +83,14 @@ func (e *Engine) Run(ctx context.Context) *models.ScanResult {
 		return result
 	}
 	if total := uint64(targets.Total()); contracts.RequiresLargeScanConsent(total, e.Opts) {
-		confirmation := &LargeScanConfirmationError{Target: e.Opts.Subnet, Total: total, Threshold: contracts.LargeScanThreshold}
+		confirmation := &discovery.LargeScanConfirmationError{Target: e.Opts.Subnet, Total: total, Threshold: contracts.LargeScanThreshold}
 		issues.Report(warningIssue("discovery", "%s", confirmation.Error()))
 		debugLog("engine", "large scan without consent: %d targets", targets.Total())
 		result.FinishedAt = time.Now()
 		return result
 	}
 	debugLog("engine", "expandTargets")
-	if warning := LargeScanWarning(e.Opts.Subnet, uint64(targets.Total())); warning != "" {
+	if warning := discovery.LargeScanWarning(e.Opts.Subnet, uint64(targets.Total())); warning != "" {
 		issues.Report(warningIssue("discovery", "%s", warning))
 	}
 
