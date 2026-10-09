@@ -4,7 +4,6 @@ package tui
 import (
 	"context"
 	"sync/atomic"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ostefani/subnetlens/models"
@@ -20,7 +19,6 @@ func runScanCmd(opts models.ScanOptions, socketBudget int, hostCh chan *models.H
 		ctx := context.Background()
 		var finalDone atomic.Int64
 		var finalTotal atomic.Int64
-		var lastUpdate time.Time
 
 		eng := scanner.NewEngine(
 			opts,
@@ -38,15 +36,9 @@ func runScanCmd(opts models.ScanOptions, socketBudget int, hostCh chan *models.H
 			scanner.WithOnProgress(func(done, total int) {
 				finalDone.Store(int64(done))
 				finalTotal.Store(int64(total))
-
-				now := time.Now()
-				// Only send a UI update every 50ms (20fps) or if it's 100% complete
-				if done >= total || now.Sub(lastUpdate) > 50*time.Millisecond {
-					select {
-					case progCh <- [2]int{done, total}:
-						lastUpdate = now
-					default:
-					}
+				select {
+				case progCh <- [2]int{done, total}:
+				default: // UI is behind; the next update carries fresher data
 				}
 			}),
 		)

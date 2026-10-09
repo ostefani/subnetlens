@@ -17,7 +17,7 @@ type Engine struct {
 	Opts             models.ScanOptions
 	SocketBudget     int
 	onHost           func(h *models.Host)  // called when a host is ready or later updated
-	onProgress       func(done, total int) // called after each ping probe in discovery
+	onProgress       func(done, total int) // discovery progress; see WithOnProgress
 	onIssue          func(issue models.ScanIssue)
 	deps             engineDependencies
 	discoveryModules []contracts.DiscoveryModule
@@ -78,7 +78,7 @@ func (e *Engine) Run(ctx context.Context) *models.ScanResult {
 	targets, expandErr := deps.targetExpander.Expand(e.Opts.Subnet)
 	if expandErr != nil {
 		issues.Report(warningIssue("discovery", "target expansion failed: %v", expandErr))
-		debugLog("engine", "expandTargets error: %v", expandErr)
+		debugLog("engine", "ExpandTargets error: %v", expandErr)
 		result.FinishedAt = time.Now()
 		return result
 	}
@@ -89,7 +89,7 @@ func (e *Engine) Run(ctx context.Context) *models.ScanResult {
 		result.FinishedAt = time.Now()
 		return result
 	}
-	debugLog("engine", "expandTargets")
+	debugLog("engine", "ExpandTargets")
 	if warning := discovery.LargeScanWarning(e.Opts.Subnet, uint64(targets.Total())); warning != "" {
 		issues.Report(warningIssue("discovery", "%s", warning))
 	}
@@ -133,8 +133,16 @@ func (e *Engine) Run(ctx context.Context) *models.ScanResult {
 	deps.activeARPSweeper.Start(runCtx, e.Opts.Subnet, targets.All(), arpCache, issues)
 	deps.subnetPreheater.Preheat(runCtx, targets.All(), targets.Total(), icmpScanner)
 
+	var onProgress func(done, total int)
+	if e.onProgress != nil {
+		reporter := startProgressReporter(e.onProgress)
+		defer reporter.Stop() // flushes the final snapshot before Run returns
+		onProgress = reporter.Update
+	}
+
 	discoveryRuntime := newDiscoveryRuntime(targets, socketLimiter, discoverySem, issues)
-	observationCh := e.runDiscoveryModules(runCtx, discoveryRuntime, deps, cache, icmpScanner, arpCache)
+	observationCh := e.runDiscoveryModules(runCtx, discoveryRuntime, deps, onProgress, cache, icmpScanner, arpCache)
+
 	observationCh = mergePassiveMDNSObservations(
 		runCtx,
 		observationCh,
@@ -227,12 +235,14 @@ func (e *Engine) runDiscoveryModules(
 	ctx context.Context,
 	runtime contracts.DiscoveryRuntime,
 	deps engineDependencies,
+	onProgress func(done, total int),
 	cache nameCache,
 	icmpScanner icmpProber,
 	arpCache *ARPCache,
 ) <-chan contracts.HostObservation {
 	streams := make([]<-chan contracts.HostObservation, 0, 1+len(e.discoveryModules))
-	streams = append(streams, deps.hostDiscoverer.Discover(ctx, e.Opts, e.onProgress, cache, icmpScanner, arpCache, runtime))
+	streams = append(streams, deps.hostDiscoverer.Discover(ctx, e.Opts, onProgress, cache, icmpScanner, arpCache, runtime))
+
 	for _, discoveryModule := range e.discoveryModules {
 		if discoveryModule == nil {
 			continue
