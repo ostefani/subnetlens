@@ -11,7 +11,7 @@ import (
 
 func LocalDiscoveryInfoForTarget(target string) LocalDiscoveryInfo {
 	var contains func(string) bool
-	targets, err := expandTargets(target)
+	targets, err := ExpandTargets(target)
 	if err == nil {
 		contains = targets.Contains
 	}

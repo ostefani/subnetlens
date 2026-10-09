@@ -78,7 +78,7 @@ func (e *Engine) Run(ctx context.Context) *models.ScanResult {
 	targets, expandErr := deps.targetExpander.Expand(e.Opts.Subnet)
 	if expandErr != nil {
 		issues.Report(warningIssue("discovery", "target expansion failed: %v", expandErr))
-		debugLog("engine", "expandTargets error: %v", expandErr)
+		debugLog("engine", "ExpandTargets error: %v", expandErr)
 		result.FinishedAt = time.Now()
 		return result
 	}
@@ -89,7 +89,7 @@ func (e *Engine) Run(ctx context.Context) *models.ScanResult {
 		result.FinishedAt = time.Now()
 		return result
 	}
-	debugLog("engine", "expandTargets")
+	debugLog("engine", "ExpandTargets")
 	if warning := discovery.LargeScanWarning(e.Opts.Subnet, uint64(targets.Total())); warning != "" {
 		issues.Report(warningIssue("discovery", "%s", warning))
 	}

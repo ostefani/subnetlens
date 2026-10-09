@@ -110,7 +110,7 @@ func TestTargetEnumerationStreamsLargeRanges(t *testing.T) {
 		"10.0.0.0/20": 4094,
 		"10.0.0.0/16": 65534,
 	} {
-		spec, err := expandTargets(target)
+		spec, err := ExpandTargets(target)
 		if err != nil {
 			t.Fatalf("expected %q to expand, got %v", target, err)
 		}
@@ -128,7 +128,7 @@ func TestTargetEnumerationStreamsLargeRanges(t *testing.T) {
 }
 
 func TestFullRangeUsableWithoutEnumerating(t *testing.T) {
-	spec, err := expandTargets("0.0.0.0-255.255.255.255")
+	spec, err := ExpandTargets("0.0.0.0-255.255.255.255")
 	if err != nil {
 		t.Fatalf("expected full range to expand, got %v", err)
 	}
@@ -174,7 +174,7 @@ func TestTargetSequenceReusableAcrossConcurrentConsumers(t *testing.T) {
 	// preheater, which consume it independently and concurrently. This locks
 	// in that rangeSpec captures no mutable iterator state: every invocation
 	// must stream the identical addresses from scratch.
-	spec, err := expandTargets("192.168.1.0/29")
+	spec, err := ExpandTargets("192.168.1.0/29")
 	if err != nil {
 		t.Fatalf("expected /29 to expand, got %v", err)
 	}
@@ -204,7 +204,7 @@ func TestTargetSequenceReusableAcrossConcurrentConsumers(t *testing.T) {
 }
 
 func BenchmarkTargetEnumerationPerIP(b *testing.B) {
-	spec, err := expandTargets("192.168.1.0/24")
+	spec, err := ExpandTargets("192.168.1.0/24")
 	if err != nil {
 		b.Fatalf("expected /24 to expand: %v", err)
 	}

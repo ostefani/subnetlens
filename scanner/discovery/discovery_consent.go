@@ -26,7 +26,7 @@ func (e *LargeScanConfirmationError) Error() string {
 // returns a *LargeScanConfirmationError. Syntax errors pass through unchanged
 // so callers keep their existing invalid-target behavior.
 func CheckTargetConsent(target string, opts models.ScanOptions) (uint64, error) {
-	spec, err := expandTargets(target)
+	spec, err := ExpandTargets(target)
 	if err != nil {
 		return 0, err
 	}

@@ -11,10 +11,6 @@ import (
 
 // ExpandTargets resolves a CIDR, a single IPv4 address, or an "a-b" range.
 func ExpandTargets(target string) (TargetSpec, error) {
-	return expandTargets(target)
-}
-
-func expandTargets(target string) (TargetSpec, error) {
 	if strings.Contains(target, "-") {
 		return expandRangeSpec(target)
 	}
