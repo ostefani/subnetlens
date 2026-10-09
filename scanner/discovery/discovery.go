@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"iter"
 	"sync"
+	"sync/atomic"
 
 	"github.com/ostefani/subnetlens/internal/debuglog"
 	"github.com/ostefani/subnetlens/models"
@@ -44,6 +45,13 @@ type LocalDiscoveryInfo struct {
 	InScanRange bool
 }
 
+// DiscoverHosts sweeps the targets provided by runtime and streams host
+// observations on the returned channel, which is closed when the sweep
+// finishes or ctx is cancelled.
+//
+// progress, if non-nil, is called after every probed address. It may be
+// called concurrently from multiple goroutines and values may arrive out of
+// order, so it must be safe for concurrent use and must not block.
 func DiscoverHosts(
 	ctx context.Context,
 	opts models.ScanOptions,
@@ -59,10 +67,11 @@ func DiscoverHosts(
 		defer close(out)
 
 		targets := runtime.Targets()
-		if targets.Total() == 0 {
+		total := targets.Total()
+		if total == 0 {
 			return
 		}
-		debuglog.Printf("discovery", "sweeping %d IPs in %s", targets.Total(), opts.Subnet)
+		debuglog.Printf("discovery", "sweeping %d IPs in %s", total, opts.Subnet)
 
 		localInfo := localDiscoveryInfoForTarget(opts.Subnet, targets.Contains)
 		for _, observation := range localHostObservations(localInfo) {
@@ -81,11 +90,12 @@ func DiscoverHosts(
 			}
 		}()
 
-		var waitGroup sync.WaitGroup
-		done := 0
-		var mu sync.Mutex
+		var (
+			workers sync.WaitGroup
+			done    atomic.Int64 // probes completed; safe to read from any goroutine
+			arpWG   sync.WaitGroup
+		)
 		scanDone := make(chan struct{})
-		var arpWG sync.WaitGroup
 
 		if arpCache != nil {
 			arpWG.Add(1)
@@ -107,27 +117,27 @@ func DiscoverHosts(
 		for ip := range targets.All() {
 			select {
 			case <-ctx.Done():
-				debuglog.Printf("discovery", "context cancelled after %d IPs — draining", done)
+				debuglog.Printf("discovery", "context cancelled after %d IPs — draining", done.Load())
 				break Loop
 			default:
 			}
 
 			if err := runtime.AcquireDiscoverySlot(ctx); err != nil {
+				debuglog.Printf("discovery", "slot acquisition stopped after %d IPs: %v", done.Load(), err)
 				break Loop
 			}
-			waitGroup.Add(1)
+
+			workers.Add(1)
 			go func(ip string) {
-				defer waitGroup.Done()
+				defer workers.Done()
 				defer runtime.ReleaseDiscoverySlot()
 
 				observations := probeHostSmart(ctx, ip, opts, resolve, icmpScanner, arpCache, runtime.SocketLimiter())
 
-				mu.Lock()
-				done++
+				n := done.Add(1)
 				if progress != nil {
-					progress(done, targets.Total())
+					progress(int(n), total)
 				}
-				mu.Unlock()
 
 				for _, observation := range observations {
 					if !sendHostObservation(ctx, out, observation) {
@@ -137,9 +147,9 @@ func DiscoverHosts(
 			}(ip)
 		}
 
-		waitGroup.Wait()
+		workers.Wait() // in-flight probes finish or observe ctx
 
-		close(scanDone)
+		close(scanDone) // stop the ARP watcher only after the last probe
 		arpWG.Wait()
 
 		debuglog.Printf("discovery", "sweep complete")

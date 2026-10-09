@@ -45,6 +45,13 @@ func WithARPCache(cache *ARPCache) Option {
 	}
 }
 
+// WithOnProgress registers a callback that reports host-discovery progress.
+//
+// The callback is never called concurrently, done never decreases, and calls
+// are throttled to roughly 20 per second. A final call with the last values
+// is made before Run returns. It is not called at all when the target is
+// invalid or lacks large-scan consent. A slow callback delays later progress
+// updates only; it never slows the scan.
 func WithOnProgress(onProgress func(done, total int)) Option {
 	return func(e *Engine) {
 		if e == nil {
